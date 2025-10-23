@@ -51,7 +51,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
     메인 자동화 루프를 실행합니다.
     stop_event가 설정되면 루프를 중지합니다.
     """
-    print("\n[ctrl + S] 자동화를 시작합니다. (종료하려면 'ctrl + E' 키)")
+    print("\n[ctrl + X] 자동화를 시작합니다. (종료하려면 'ctrl + E' 키)")
     print("---------------------------------------------------------")
     
     try:

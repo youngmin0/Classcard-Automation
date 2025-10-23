@@ -14,7 +14,7 @@ driver = None
 answer_dict = None
 automation_thread = None
 stop_event = None
-automation_lock = threading.Lock() # 's' 키 중복 방지
+automation_lock = threading.Lock()
 
 def initialize_browser():
     """
@@ -109,7 +109,7 @@ if __name__ == "__main__":
     if driver and answer_dict:
         print("\n--- 클래스카드 스펠 자동화 컨트롤러 ---")
         print("브라우저가 열렸습니다. 로그인 후 스펠 학습 페이지로 이동하세요.")
-        print("\n   [Ctrl + S] 키 : 스펠 자동화 시작")
+        print("\n   [ctrl + X] 키 : 스펠 자동화 시작")
         print("   [Ctrl + E] 키 : 자동화 멈추기")
         print("   [Esc] 키      : 프로그램 전체 종료 (브라우저 닫힘)")
         print("--------------------------------------------------")
@@ -117,7 +117,7 @@ if __name__ == "__main__":
         # 1. 핫키(Ctrl+S, Ctrl+E) 리스너 설정
         #    이 부분이 기존의 on_press 함수를 대체합니다.
         hotkey_listener = GlobalHotKeys({
-            '<ctrl>+s': start_automation_spell,
+            '<ctrl>+x': start_automation_spell,
             '<ctrl>+e': stop_automation
         })
         
