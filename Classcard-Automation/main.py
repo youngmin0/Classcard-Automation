@@ -5,6 +5,7 @@ from pynput.keyboard import GlobalHotKeys
 from selenium.webdriver.chrome.options import Options
 import atexit
 import Spell  # Spell.py 파일을 import
+import Recall
 
 # --- 🎯 사용자 설정 영역 ---
 URL = 'https://www.classcard.net/Login'
@@ -45,7 +46,7 @@ def initialize_browser():
         return None
 
 def start_automation_spell():
-    """'s' 키: 자동화 루프 스레드를 시작합니다."""
+    """'x' 키: 자동화 루프 스레드를 시작합니다."""
     global automation_thread, stop_event, driver, answer_dict
     
     if driver is None or answer_dict is None:
@@ -62,7 +63,27 @@ def start_automation_spell():
             )
             automation_thread.start()
         else:
-            print("\n[S] 자동화가 이미 실행 중입니다.")
+            print("\n[X] 자동화가 이미 실행 중입니다.")
+
+def start_automation_recall():
+    """'y' 키: 자동화 루프 스레드를 시작합니다."""
+    global automation_thread, stop_event, driver, answer_dict
+    
+    if driver is None or answer_dict is None:
+        print("\n[!] 드라이버 또는 정답 딕셔너리가 준비되지 않았습니다.")
+ 
+        return
+    
+    with automation_lock:
+        if automation_thread is None or not automation_thread.is_alive():
+            stop_event = threading.Event()
+            automation_thread = threading.Thread(
+                target=Recall.run_automation_loop, 
+                args=(driver, answer_dict, stop_event)
+            )
+            automation_thread.start()
+        else:
+            print("\n[Y] 자동화가 이미 실행 중입니다.")
 
 def stop_automation():
     """'e' 키: 자동화 루프를 중지 신호를 보냅니다."""
@@ -75,7 +96,7 @@ def stop_automation():
                 stop_event.set() # 루프에 중지 신호 전송
             automation_thread = None # 참조 제거
         else:
-            print("\n[crtrl + E] 키 입력: 현재 실행 중인 자동화가 없습니다.")
+            print("\n[ctrl + E] 키 입력: 현재 실행 중인 자동화가 없습니다.")
 
 def cleanup_on_exit():
     """프로그램 종료 시 브라우저를 닫습니다."""
@@ -110,6 +131,7 @@ if __name__ == "__main__":
         print("\n--- 클래스카드 스펠 자동화 컨트롤러 ---")
         print("브라우저가 열렸습니다. 로그인 후 스펠 학습 페이지로 이동하세요.")
         print("\n   [ctrl + X] 키 : 스펠 자동화 시작")
+        print("   [Ctrl + Y] 키 : 리콜 자동화 시작")
         print("   [Ctrl + E] 키 : 자동화 멈추기")
         print("   [Esc] 키      : 프로그램 전체 종료 (브라우저 닫힘)")
         print("--------------------------------------------------")
@@ -118,7 +140,8 @@ if __name__ == "__main__":
         #    이 부분이 기존의 on_press 함수를 대체합니다.
         hotkey_listener = GlobalHotKeys({
             '<ctrl>+x': start_automation_spell,
-            '<ctrl>+e': stop_automation
+            '<ctrl>+y': start_automation_recall,
+            '<ctrl>+e': stop_automation,
         })
         
         # 2. 'Esc' 키를 위한 별도 리스너 설정
