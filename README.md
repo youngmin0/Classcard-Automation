@@ -5,51 +5,27 @@
 [![Issues][issues-shield]][issues-url]
 [![Unlicense License][license-shield]][license-url]
 
-
-
+<!-- PROJECT LOGO -->
 <br />
 <div align="center">
-  <a href="https://github.com/youngmin0/Classcard-Automation">
-  </a>
+  <a href="https://github.com/youngmin0/Classcard-Automation">
+    <img src="https://play-lh.googleusercontent.com/howCUVHqn67CQ_1VuMAICY7FIwUGT-4c6_Tcii_9z0dE1_2ZN2vA8Ny1EMkJVYMGBQUw" alt="Classcard" width="80" height="80">
+  </a>
 
-  <h3 align="center">Classcard-Automation</h3>
+  <h3 align="center">Classcard Automation</h3>
 
-  <p align="center">
-    클래스카드(Classcard)의 암기, 리콜, 스펠 학습을 자동화하는 Python 스크립트입니다.
-    <br />
-    <br />
-    <a href="https://github.com/youngmin0/Classcard-Automation/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
-    &middot;
-    <a href="https://github.com/youngmin0/Classcard-Automation/issues/new?labels=enhancement&template=feature-request---.md">Request Feature</a>
-  </p>
+  <p align="center">
+    클래스카드(Classcard)의 암기, 리콜, 스펠 학습을 자동화하는 Python 스크립트입니다.
+    <br />
+    <a href="https://github.com/youngmin0/Classcard-Automation"><strong>GitHub »</strong></a>
+    <br />
+    <br />
+  </p>
 </div>
 
 
 
-<details>
-  <summary>Table of Contents</summary>
-  <ol>
-    <li>
-      <a href="#about-the-project">About The Project</a>
-      <ul>
-        <li><a href="#built-with">Built With</a></li>
-      </ul>
-    </li>
-    <li>
-      <a href="#getting-started">Getting Started</a>
-      <ul>
-        <li><a href="#prerequisites">Prerequisites</a></li>
-        <li><a href="#installation">Installation</a></li>
-      </ul>
-    </li>
-    <li><a href="#usage">Usage</a></li>
-    <li><a href="#roadmap">Roadmap</a></li>
-    <li><a href="#contributing">Contributing</a></li>
-    <li><a href="#license">License</a></li>
-    <li><a href="#contact">Contact</a></li>
-    <li><a href="#acknowledgments">Acknowledgments</a></li>
-  </ol>
-</details
+<br />
 
 
 
@@ -59,10 +35,9 @@
 
 Selenium을 사용하여 웹 브라우저를 제어하고, PyAutoGUI로 키보드 및 마우스 입력을 시뮬레이션하며, Pynput을 통해 글로벌 단축키를 지원합니다.
 
-Here's why:
-* 🤖 **암기(Memorize) 모드**: 스페이스바 입력을 자동화합니다.
-* 🖱️ **리콜(Recall) 모드**: 정답 요소를 자동으로 클릭합니다.
-* ⌨️ **스펠(Spell) 모드**: `data.json`의 정답 목록을 기반으로 자동으로 정답을 타이핑합니다.
+* **암기(Memorize)**: 스페이스바 입력을 자동화
+* **리콜(Recall)**: 정답 요소를 자동으로 클릭
+* **스펠(Spell)**: `data.json`의 정답 목록을 기반으로 자동으로 정답을 타이핑
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -90,34 +65,25 @@ Here's why:
 
 * **Python 3.x**
 * **Google Chrome** 브라우저
-* **ChromeDriver**: 사용 중인 Chrome 브라우저와 버전이 일치해야 합니다.
 * Python 라이브러리 설치:
-    ```sh
-    pip install selenium pyautogui pynput
-    ```
+```sh
+pip install selenium pyautogui pynput
+```
 
 ### Installation
 
 1.  GitHub 저장소를 복제(Clone)합니다.
-    ```sh
-    git clone [https://github.com/youngmin0/Classcard-Automation.git](https://github.com/youngmin0/Classcard-Automation.git)
-    ```
-2.  프로젝트 폴더로 이동합니다.
-    ```sh
-    cd Classcard-Automation
-    ```
-3.  Python 라이브러리를 설치합니다.
-    ```sh
-    pip install selenium pyautogui pynput
-    ```
-4.  **ChromeDriver**를 준비합니다.
-    * [Chrome 드라이버 다운로드](https://chromedriver.chromium.org/downloads)
-    * 다운로드한 `chromedriver.exe` 파일을 `main.py`가 있는 프로젝트 폴더에 복사합니다.
-5.  **(필수) `data.json` 정답 파일을 생성합니다.**
-    * 클래스카드 학습 세트의 '인쇄' 버튼 > '단어와 뜻' 선택 > 인쇄 미리보기로 이동합니다.
-    * `F12`를 눌러 개발자 도구를 열고 'Console' 탭으로 이동합니다.
-    * 콘솔에 `JSON.stringify(card_list)` 를 입력하고 실행합니다.
-    * 출력된 `[...]` 형태의 텍스트 전체를 복사하여, 프로젝트 폴더에 `data.json` 파일을 만들고 붙여넣기 (인코딩: UTF-8) 후 저장합니다.
+```sh
+git clone [https://github.com/youngmin0/Classcard-Automation.git](https://github.com/youngmin0/Classcard-Automation.git)
+```
+3.  프로젝트 폴더로 이동합니다.
+```sh
+cd Classcard-Automation
+```
+4.  Python 라이브러리를 설치합니다.
+```sh
+pip install selenium pyautogui pynput
+```
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -126,12 +92,12 @@ Here's why:
 ## Usage
 
 1.  터미널에서 `main.py`를 실행합니다.
-    ```sh
-    python main.py
-    ```
+```sh
+python main.py
+```
 2.  자동으로 Chrome 브라우저가 열리면, 클래스카드에 **수동으로 로그인**합니다.
 3.  자동화를 원하는 학습 세트 (암기, 리콜, 스펠) 페이지로 이동하여 학습을 시작합니다.
-4.  아래 단축키를 사용하여 자동화를 제어합니다.
+4.  아래 단축키를 사용하여 자동화를 시작합니다.
 
 *  `Ctrl + I` : **암기** 자동화 시작
 *  `Ctrl + Y` : **리콜** 자동화 시작
