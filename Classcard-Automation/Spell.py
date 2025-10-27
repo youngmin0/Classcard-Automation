@@ -1,4 +1,3 @@
-import time
 import json
 import pyautogui
 from selenium.webdriver.common.by import By
@@ -9,7 +8,6 @@ import os
 import threading
 
 def get_screen_text(driver):
-    """현재 화면의 문제 텍스트를 가져옵니다."""
     try:
         wait = WebDriverWait(driver, 10)
         target_element = wait.until(
@@ -23,14 +21,11 @@ def get_screen_text(driver):
         print("오류: 브라우저 창이 닫혔습니다.")
         return None
     except Exception as e:
-        # 기타 예외 (예: 페이지 이동 중)
         print(f"텍스트 읽기 오류: {e}")
         return None
 
 def create_answer_dict():
-    """data.json 파일에서 정답 딕셔너리를 생성합니다."""
     try:
-        # main.py와 같은 위치에 있는 data.json을 찾습니다.
         json_path = os.path.join(os.getcwd(), 'data.json')
         
         with open(json_path, 'r', encoding='utf-8') as file:
@@ -47,10 +42,6 @@ def create_answer_dict():
         return None
 
 def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
-    """
-    메인 자동화 루프를 실행합니다.
-    stop_event가 설정되면 루프를 중지합니다.
-    """
     print("\n[ctrl + X] 자동화를 시작합니다. (종료하려면 'ctrl + E' 키)")
     print("---------------------------------------------------------")
     
@@ -66,7 +57,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
 
             found_key = None
             for key in answer_dict.keys():
-                if ''.join(text.split()) in ''.join(key.split()):
+                if ''.join(text.split()) == ''.join(key.split()):
                     found_key = key
                     break
             
