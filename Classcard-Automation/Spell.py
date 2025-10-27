@@ -52,8 +52,6 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             if text is None:
                 if stop_event.wait(timeout=1.0): break
                 continue
-            
-            print(f"1. 인식된 텍스트: '{text}'")
 
             found_key = None
             for key in answer_dict.keys():
@@ -63,24 +61,17 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             
             if found_key:
                 answer = answer_dict[found_key]
-                print(f"2. 정답을 찾았습니다! -> '{answer}'")
-
-                print("3. 정답을 입력합니다...")
                 pyautogui.click(pyautogui.position())
                 if stop_event.wait(timeout=0.1): break
-                
                 pyautogui.write(answer, interval=0.01)
                 if stop_event.wait(timeout=0.1): break
-                
                 pyautogui.press('enter')
                 
                 if stop_event.wait(timeout=1.5): break
                 pyautogui.press('space')
-                print("---------------------------------------------------------")
                 if stop_event.wait(timeout=1.0): break
             else:
                 print(f"2. 딕셔너리에서 '{text}'에 대한 정답을 찾지 못했습니다.")
-                print("---------------------------------------------------------")
                 if stop_event.wait(timeout=2.5): break
 
     except Exception as e:

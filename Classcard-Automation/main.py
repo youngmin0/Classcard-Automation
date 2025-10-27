@@ -128,9 +128,9 @@ if __name__ == "__main__":
     if driver and answer_dict:
         print("\n--- 클래스카드 스펠 자동화 컨트롤러 ---")
         print("브라우저가 열렸습니다. 로그인 후 스펠 학습 페이지로 이동하세요.")
-        print("   [Ctrl + I] 키 : 암기 자동화 시작")
+        print("\n   [Ctrl + I] 키 : 암기 자동화 시작")
         print("   [Ctrl + Y] 키 : 리콜 자동화 시작")
-        print("\n   [ctrl + X] 키 : 스펠 자동화 시작")
+        print("   [ctrl + X] 키 : 스펠 자동화 시작")
         print("   [Ctrl + E] 키 : 자동화 멈추기")
         print("   [Esc] 키      : 프로그램 전체 종료 (브라우저 닫힘)")
         print("--------------------------------------------------")
