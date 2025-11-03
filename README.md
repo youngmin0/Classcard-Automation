@@ -74,7 +74,7 @@ pip install selenium pyautogui pynput
 
 1.  GitHub 저장소를 복제(Clone)합니다.
 ```sh
-git clone [https://github.com/youngmin0/Classcard-Automation.git](https://github.com/youngmin0/Classcard-Automation.git)
+git clone https://github.com/youngmin0/Classcard-Automation.git
 ```
 3.  프로젝트 폴더로 이동합니다.
 ```sh
