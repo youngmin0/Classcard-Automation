@@ -26,12 +26,14 @@ def parse_english_words(front_sentence):
 
     예) "Hello, world! Don't stop." -> ["Hello", "world", "Dont", "stop"]
     """
-    words = front_sentence.split()
+    tokens = front_sentence.split()
     parsed = []
-    for word in words:
-        cleaned = re.sub(r"[^a-zA-Z0-9]", "", word)
-        if cleaned:
-            parsed.append(cleaned)
+    for token in tokens:
+        parts = re.split(r'(\([^)]*\))', token)
+        for part in parts:
+            cleaned = re.sub(r"[^a-zA-Z0-9]", "", part)
+            if cleaned:
+                parsed.append(cleaned)
     return parsed
 
 
