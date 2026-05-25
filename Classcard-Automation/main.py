@@ -7,6 +7,7 @@ import atexit
 import Spell  
 import Recall
 import Memorize
+import HtmlParser
 
 URL = 'https://www.classcard.net/Login' # 클카 로그인 페이지
 
@@ -117,6 +118,15 @@ def on_esc_release(key):
             hotkey_listener.stop()
         return False
 
+def html_parse():
+    global driver
+    if driver is None:
+        print("\n[!] 드라이버가 준비되지 않았습니다.")
+        return
+    
+    print("\n[Ctrl + M] 키 입력: HTML 데이터를 추출합니다...")
+    HtmlParser.get_data(driver)
+
 if __name__ == "__main__":
     atexit.register(cleanup_on_exit)
 
@@ -140,6 +150,7 @@ if __name__ == "__main__":
             '<ctrl>+y': start_automation_recall,
             '<ctrl>+i': start_automation_memorize,
             '<ctrl>+e': stop_automation,
+            '<ctrl>+m': html_parse,
         })
         
         esc_listener = keyboard.Listener(
