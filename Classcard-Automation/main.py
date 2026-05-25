@@ -4,11 +4,12 @@ from selenium import webdriver
 from pynput.keyboard import GlobalHotKeys
 from selenium.webdriver.chrome.options import Options
 import atexit
-import Spell  
+import Spell
 import Recall
 import Memorize
+import MemorizeSentence
 import HtmlParser
-
+   
 URL = 'https://www.classcard.net/Login' # 클카 로그인 페이지
 
 driver = None
@@ -91,6 +92,22 @@ def start_automation_memorize():
         else:
             print("\n[I] 자동화가 이미 실행 중입니다.")
 
+def start_automation_memorize_sentence():
+    global automation_thread, stop_event, driver, answer_dict
+    if driver is None or answer_dict is None:
+        print("\n[!] 드라이버 또는 정답 딕셔너리가 준비되지 않았습니다.")
+        return
+    with automation_lock:
+        if automation_thread is None or not automation_thread.is_alive():
+            stop_event = threading.Event()
+            automation_thread = threading.Thread(
+                target=MemorizeSentence.run_automation_loop,
+                args=(driver, answer_dict, stop_event)
+            )
+            automation_thread.start()
+        else:
+            print("\n[B] 자동화가 이미 실행 중입니다.")
+
 def stop_automation():
     global automation_thread, stop_event
     
@@ -140,8 +157,10 @@ if __name__ == "__main__":
         print("브라우저가 열렸습니다. 로그인 후 스펠 학습 페이지로 이동하세요.")
         print("\n   [Ctrl + I] 키 : 암기 자동화 시작")
         print("   [Ctrl + Y] 키 : 리콜 자동화 시작")
-        print("   [ctrl + X] 키 : 스펠 자동화 시작")
+        print("   [Ctrl + X] 키 : 스펠 자동화 시작")
+        print("   [Ctrl + B] 키 : 문장 암기 자동화 시작")
         print("   [Ctrl + E] 키 : 자동화 멈추기")
+        print("   [Ctrl + M] 키 : 단어장 가져오기")
         print("   [Esc] 키      : 프로그램 전체 종료 (브라우저 닫힘)")
         print("--------------------------------------------------")
 
@@ -149,6 +168,7 @@ if __name__ == "__main__":
             '<ctrl>+x': start_automation_spell,
             '<ctrl>+y': start_automation_recall,
             '<ctrl>+i': start_automation_memorize,
+            '<ctrl>+b': start_automation_memorize_sentence,
             '<ctrl>+e': stop_automation,
             '<ctrl>+m': html_parse,
         })
