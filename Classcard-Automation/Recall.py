@@ -3,16 +3,31 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
-import threading
+import threading 
 
-def click_answer(driver):
-    try:
+def click_answer(driver): 
+    try: 
         wait = WebDriverWait(driver, 10)
+
+        # 카드 플립 애니메이션(.card-cover.down)이 사라질 때까지 대기
+        try:
+            wait.until(
+                EC.invisibility_of_element_located((By.CSS_SELECTOR, '.card-cover.down'))
+            )
+        except TimeoutException:
+            pass  # 오버레이가 없으면 그냥 진행
+
         showing_element = wait.until(
             EC.visibility_of_element_located((By.CSS_SELECTOR, '.showing'))
         )
         target_element = showing_element.find_element(By.CSS_SELECTOR, '.answer')
-        target_element.click()
+
+        # 일반 클릭 시도, 실패하면 JavaScript 클릭으로 폴백
+        try:
+            target_element.click()
+        except Exception:
+            driver.execute_script("arguments[0].click();", target_element)
+
     except TimeoutException:
         print("시간 초과: 문제 텍스트 요소를 찾을 수 없습니다. 페이지가 올바르게 로드되었는지 확인하세요.")
         return None

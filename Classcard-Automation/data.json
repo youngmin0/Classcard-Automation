@@ -1,94 +1,98 @@
 [
   {
-    "front": "hang around",
-    "back": "근처에 있다, 시간을 보내다, 빈둥거리다"
+    "front": "send away",
+    "back": "돌려보내다, (멀리) 보내다"
   },
   {
-    "front": "hang onto",
-    "back": "매달리다, 붙어있다"
+    "front": "send back",
+    "back": "되돌아가게 하다, 돌려보내다"
   },
   {
-    "front": "hang out",
-    "back": "1. 밖에 걸다/널다\r\n2. 시간을 보내다, 서성이다"
+    "front": "send for",
+    "back": "~에게 ~을 가져/데려오게 시키다, (~을 요청하러) 보내다"
   },
   {
-    "front": "hang over",
-    "back": "걸려 있다"
+    "front": "send in",
+    "back": "들여보내다, 가게 하다"
   },
   {
-    "front": "hang together",
-    "back": "같이 매달리다"
+    "front": "send off",
+    "back": "보내다, 부치다"
   },
   {
-    "front": "hang up",
-    "back": "1. 걸다/널다\r\n2. 전화를 끊다"
+    "front": "send out",
+    "back": "내보내다, 우송하다"
   },
   {
-    "front": "hang up on",
-    "back": "일방적으로 전화를 끊다"
+    "front": "set about",
+    "back": "시작하다, 착수하다"
   },
   {
-    "front": "hold back",
-    "back": "1. 못하게 하다, 통제하다\r\n2. 억누르다\r\n3. (속에) 갖고 있다, 발표하지 않다"
+    "front": "set against",
+    "back": "대놓다, 기대어 놓다; 반대하게 하다"
   },
   {
-    "front": "hold down",
-    "back": "1. 눌러놓다\r\n2. 붙들고 있다"
+    "front": "set apart",
+    "back": "떼어놓다, 두드러지게 만들다"
   },
   {
-    "front": "hold on",
-    "back": "잡고 있다, 기다리다, 인내하다"
+    "front": "set aside",
+    "back": "옆에 치워놓다, ~을 위해 예비해 놓다"
   },
   {
-    "front": "hold onto",
-    "back": "달라 붙어있다, 꼭 잡다"
+    "front": "set back",
+    "back": "뒤로 돌리다, 발전을 늦추다"
   },
   {
-    "front": "hold out",
-    "back": "1. 내밀다\r\n2. 견디어 내다"
+    "front": "set down",
+    "back": "적어두다, 기록하다"
   },
   {
-    "front": "hold up",
-    "back": "1. 잡고 있다, 지체시키다\r\n2. 털다, 강도질하다"
+    "front": "set forth",
+    "back": "출발하다, 떠나다"
   },
   {
-    "front": "keep at",
-    "back": "계속하다, 끈기 있게 하다"
+    "front": "set in",
+    "back": "들어서다, 시작되어 계속되다"
   },
   {
-    "front": "keep away from",
-    "back": "~으로부터 피하다, 막다"
+    "front": "set off",
+    "back": "1. 출발하다, 떠나다 2. 폭파시키다, (큰 소리로) 울리게 하다"
   },
   {
-    "front": "keep down",
-    "back": "낮게 하다, 낮추다"
+    "front": "set out",
+    "back": "내놓다, 배열하다"
   },
   {
-    "front": "keep from",
-    "back": "~하는 것을 삼가다, 막다"
+    "front": "set up",
+    "back": "1. 세우다, 설치하다 2. 준비하다 3. 덮어씌우다"
   },
   {
-    "front": "keep in",
-    "back": "안에 두다, 실내에 있게 하다"
+    "front": "sit around",
+    "back": "앉아서 빈둥대다"
   },
   {
-    "front": "keep off",
-    "back": "들어가지 않다, 떨어져 있게 하다"
+    "front": "sit back",
+    "back": "1. (의자에 등을) 기대다 2. 뒤에 앉아 있다, (건물 등이) 떨어져서/거리를 두고 세워지다, 위치하다"
   },
   {
-    "front": "keep on",
-    "back": "계속 ~하다"
+    "front": "sit in",
+    "back": "1. (적극적인 역할이나 의무 없이) 참석하다, 청강하다 2. 대신 (들어가) 앉다"
   },
   {
-    "front": "keep out of",
-    "back": "벗어나 있다, 멀리하다"
+    "front": "sit on",
+    "back": "~에서 일하다/봉사하다"
   },
   {
-    "front": "keep up",
-    "back": "유지하다"
+    "front": "sit out",
+    "back": "빠지다"
   },
   {
-    "front": "keep up with",
-    "back": "보조를 맞추다, ~에 대해서 알다"
+    "front": "sit through",
+    "back": "(기분 좋지 않은 일이) 끝날 때까지 앉아 있거나 움직이지 않은 채로 남아 있다"
+  },
+  {
+    "front": "sit up",
+    "back": "1. 똑바로 앉다 2. 늦도록 깨어 있다, 자러 가지 않다"
   }
 ]
