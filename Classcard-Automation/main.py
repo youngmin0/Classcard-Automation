@@ -8,6 +8,7 @@ import Spell
 import Recall
 import Memorize
 import MemorizeSentence
+import RecallSentence
 import HtmlParser
    
 URL = 'https://www.classcard.net/Login' # 클카 로그인 페이지
@@ -108,6 +109,22 @@ def start_automation_memorize_sentence():
         else:
             print("\n[B] 자동화가 이미 실행 중입니다.")
 
+def start_automation_recall_sentence():
+    global automation_thread, stop_event, driver, answer_dict
+    if driver is None or answer_dict is None:
+        print("\n[!] 드라이버 또는 정답 딕셔너리가 준비되지 않았습니다.")
+        return
+    with automation_lock:
+        if automation_thread is None or not automation_thread.is_alive():
+            stop_event = threading.Event()
+            automation_thread = threading.Thread(
+                target=RecallSentence.run_automation_loop,
+                args=(driver, answer_dict, stop_event)
+            )
+            automation_thread.start()
+        else:
+            print("\n[N] 자동화가 이미 실행 중입니다.")
+
 def stop_automation():
     global automation_thread, stop_event
     
@@ -159,6 +176,7 @@ if __name__ == "__main__":
         print("   [Ctrl + Y] 키 : 리콜 자동화 시작")
         print("   [Ctrl + X] 키 : 스펠 자동화 시작")
         print("   [Ctrl + B] 키 : 문장 암기 자동화 시작")
+        print("   [Ctrl + Q] 키 : 문장 리콜 자동화 시작")
         print("   [Ctrl + E] 키 : 자동화 멈추기")
         print("   [Ctrl + M] 키 : 단어장 가져오기")
         print("   [Esc] 키      : 프로그램 전체 종료 (브라우저 닫힘)")
@@ -169,6 +187,7 @@ if __name__ == "__main__":
             '<ctrl>+y': start_automation_recall,
             '<ctrl>+i': start_automation_memorize,
             '<ctrl>+b': start_automation_memorize_sentence,
+            '<ctrl>+q': start_automation_recall_sentence,
             '<ctrl>+e': stop_automation,
             '<ctrl>+m': html_parse,
         })

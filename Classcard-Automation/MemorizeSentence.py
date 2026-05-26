@@ -1,8 +1,19 @@
 import re
+import unicodedata
 import threading
-import pyautogui
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import NoSuchWindowException
+
+
+def normalize_text(text):
+    """보이지 않는 유니코드 문자와 공백을 모두 제거하여 비교용 문자열로 정규화합니다."""
+    # NFKC 정규화: 전각문자/합성문자 등 통일
+    text = unicodedata.normalize('NFKC', text)
+    # Non-breaking space, Zero-width 계열, BOM 등 제거
+    text = re.sub(r'[ ​‌‍\u200E\u200F﻿]', '', text)
+    # 나머지 모든 공백 제거
+    return "".join(text.split())
 
 
 def get_korean_sentence(driver):
@@ -69,7 +80,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
         while not stop_event.is_set():
             # 1. 문장 시작 시 space 누르기
             print("[시작] space 키 입력")
-            pyautogui.press('space')
+            driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
             if stop_event.wait(timeout=0.5):
                 break
 
@@ -84,13 +95,15 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
 
             # 3. data.json(answer_dict)에서 대응하는 영어 문장 찾기
             found_key = None
+            normalized_korean = normalize_text(korean_text)
             for key in answer_dict:
-                if "".join(korean_text.split()) == "".join(key.split()):
+                if normalized_korean == normalize_text(key):
                     found_key = key
                     break
 
             if not found_key:
                 print(f"  [!] 딕셔너리에서 대응하는 영어 문장을 찾지 못했습니다.")
+                print(f"  [디버그] 화면 텍스트 (repr): {repr(korean_text)}")
                 if stop_event.wait(timeout=0.5):
                     break
                 continue
@@ -117,7 +130,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
 
             # 6. 문장 완료 후 space 누르고 1초 대기 후 다음 문장으로
             print("[완료] 문장 입력 완료. space 키 입력 후 다음 문장으로 이동합니다...")
-            pyautogui.press('space')
+            driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
             if stop_event.wait(timeout=0.5):
                 break
 
