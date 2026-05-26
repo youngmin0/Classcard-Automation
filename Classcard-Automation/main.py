@@ -52,8 +52,6 @@ def initialize_browser():
 def auto_login(driver_instance):
     user_id = os.getenv("CLASSCARD_ID")
     user_pw = os.getenv("CLASSCARD_PW")
-    class_id = os.getenv("CLASSCARD_CLASS_ID")
-
     if not user_id or not user_pw:
         print("[!] .env 파일에 CLASSCARD_ID / CLASSCARD_PW가 없습니다. 수동 로그인하세요.")
         return
@@ -64,26 +62,38 @@ def auto_login(driver_instance):
         id_input = wait.until(EC.presence_of_element_located(
             (By.CSS_SELECTOR, "input[type='text'][name*='id' i], input[type='text'][name*='Id' i], input#userId, input[placeholder*='아이디']")
         ))
-        pw_input = driver_instance.find_element(
-            By.CSS_SELECTOR, "input[type='password']"
+        pw_input = driver_instance.find_element(By.CSS_SELECTOR, "input[type='password']")
+
+        driver_instance.execute_script(
+            "arguments[0].value = arguments[1];"
+            "arguments[0].dispatchEvent(new Event('input', {bubbles: true}));",
+            id_input, user_id
+        )
+        driver_instance.execute_script(
+            "arguments[0].value = arguments[1];"
+            "arguments[0].dispatchEvent(new Event('input', {bubbles: true}));",
+            pw_input, user_pw
         )
 
-        id_input.clear()
-        id_input.send_keys(user_id)
-        pw_input.clear()
-        pw_input.send_keys(user_pw)
+        try:
+            alert = driver_instance.switch_to.alert
+            alert.dismiss()
+        except Exception:
+            pass
 
         login_btn = driver_instance.find_element(
             By.CSS_SELECTOR, "a.btn-login"
         )
         login_btn.click()
 
+        try:
+            alert = driver_instance.switch_to.alert
+            alert.dismiss()
+        except Exception:
+            pass
+
         wait.until(EC.url_changes(URL))
         print(f"[O] 로그인 성공: {user_id}")
-
-        if class_id:
-            driver_instance.get(f"https://www.classcard.net/ClassMain/{class_id}")
-            print(f"[O] 클래스 페이지로 이동: {class_id}")
 
     except Exception as e:
         print(f"[!] 자동 로그인 실패: {e}")
