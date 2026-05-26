@@ -11,7 +11,7 @@ def normalize_text(text):
     # NFKC 정규화: 전각문자/합성문자 등 통일
     text = unicodedata.normalize('NFKC', text)
     # Non-breaking space, Zero-width 계열, BOM 등 제거
-    text = re.sub(r'[ ​‌‍\u200E\u200F﻿]', '', text)
+    text = re.sub(r'[ ​‌‍\u200E\u200F﻿]', '', text)
     # 나머지 모든 공백 제거
     return "".join(text.split())
 
@@ -44,6 +44,36 @@ def parse_english_words(front_sentence):
         if cleaned:
             parsed.append(cleaned)
     return parsed
+
+
+def check_step2_success_and_stop(driver, stop_event):
+    """완료 후 .hidden.step2 .text-success 가 없으면 원격 버튼을 클릭하고 자동화를 중지합니다."""
+    try:
+        success_elements = driver.execute_script(
+            'return document.querySelectorAll(".hidden.step2").length;'
+        )
+        if success_elements == 0:
+            print("  [체크] .hidden.step2 없음 → 원격 버튼 클릭 후 자동화 중지")
+            remote_items = driver.execute_script(
+                'return document.querySelectorAll("#study_end.active .study-header a");'
+            )
+            if remote_items:
+                driver.execute_script(
+                    'document.querySelectorAll("#study_end.active .study-header a")[0].click();'
+                )
+                print("  [체크] 첫 번째 remote_left 버튼 클릭 완료")
+            else:
+                print("  [체크] remote_left 버튼을 찾지 못했습니다.")
+            stop_event.set()
+            return True  # 중지 신호 발생
+        else:
+            print(f"  [체크] .hidden.step2 존재 ({success_elements}개) → 계속 진행")
+            return False
+    except NoSuchWindowException:
+        raise
+    except Exception as e:
+        print(f"  [체크] 완료 확인 중 오류: {e}")
+        return False
 
 
 def click_scramble_word(driver, word):
@@ -130,6 +160,10 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             print("[완료] 문장 입력 완료. space 키 입력 후 다음 문장으로 이동합니다...")
             driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
             if stop_event.wait(timeout=0.5):
+                break
+
+            # 7. step2 성공 여부 확인 → 없으면 버튼 클릭 후 자동화 중지
+            if check_step2_success_and_stop(driver, stop_event):
                 break
 
     except NoSuchWindowException:

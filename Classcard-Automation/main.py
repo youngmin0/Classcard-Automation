@@ -153,13 +153,14 @@ def on_esc_release(key):
         return False
 
 def html_parse():
-    global driver
+    global driver, answer_dict
     if driver is None:
         print("\n[!] 드라이버가 준비되지 않았습니다.")
         return
     
     print("\n[Ctrl + M] 키 입력: HTML 데이터를 추출합니다...")
     HtmlParser.get_data(driver)
+    answer_dict = Spell.create_answer_dict()
 
 if __name__ == "__main__":
     atexit.register(cleanup_on_exit)
