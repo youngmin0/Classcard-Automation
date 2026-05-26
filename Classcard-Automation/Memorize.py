@@ -1,15 +1,17 @@
 import time
 import threading
-import pyautogui
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
 
 def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
     print("\n[ctrl + I] 자동화를 시작합니다. (종료하려면 'ctrl + E' 키)")
     print("---------------------------------------------------------")
     try:
         while not stop_event.is_set():
-            pyautogui.press('space')
+            driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
             time.sleep(1)
-            pyautogui.hotkey('shift', 'space')
+            ActionChains(driver).key_down(Keys.SHIFT).send_keys(Keys.SPACE).key_up(Keys.SHIFT).perform()
             time.sleep(2)
 
     except Exception as e:

@@ -1,9 +1,9 @@
 import json
-import pyautogui
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchWindowException
+from selenium.webdriver.common.keys import Keys
 import os
 import threading
 
@@ -61,14 +61,19 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             
             if found_key:
                 answer = answer_dict[found_key]
-                pyautogui.click(pyautogui.position())
-                if stop_event.wait(timeout=0.1): break
-                pyautogui.write(answer, interval=0.01)
-                if stop_event.wait(timeout=0.1): break
-                pyautogui.press('enter')
-                
+                try:
+                    input_el = driver.find_element(By.CSS_SELECTOR, '.current input')
+                    input_el.clear()
+                    input_el.send_keys(answer)
+                    if stop_event.wait(timeout=0.1): break
+                    input_el.send_keys(Keys.RETURN)
+                except Exception as e:
+                    print(f"입력 오류: {e}")
+                    if stop_event.wait(timeout=0.1): break
+                    continue
+
                 if stop_event.wait(timeout=1.5): break
-                pyautogui.press('space')
+                driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
                 if stop_event.wait(timeout=1.0): break
             else:
                 print(f"2. 딕셔너리에서 '{text}'에 대한 정답을 찾지 못했습니다.")
