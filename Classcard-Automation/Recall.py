@@ -35,13 +35,13 @@ def click_answer(driver):
 
 
 def check_step2_success_and_stop(driver, stop_event):
-    """완료 후 .hidden.step2 가 없으면 원격 버튼을 클릭하고 자동화를 중지합니다."""
+    """#study_end.active 가 존재하면 원격 버튼을 클릭하고 자동화를 중지합니다."""
     try:
-        success_elements = driver.execute_script(
-            'return document.querySelectorAll(".hidden.step2").length;'
+        study_end_active = driver.execute_script(
+            'return document.querySelectorAll("#study_end.active").length;'
         )
-        if success_elements == 0:
-            print("  [체크] .hidden.step2 없음 → 원격 버튼 클릭 후 자동화 중지")
+        if study_end_active > 0:
+            print("  [체크] #study_end.active 존재 → 원격 버튼 클릭 후 자동화 중지")
             remote_items = driver.execute_script(
                 'return document.querySelectorAll("#study_end.active .study-header a");'
             )
@@ -52,10 +52,31 @@ def check_step2_success_and_stop(driver, stop_event):
                 print("  [체크] 첫 번째 remote_left 버튼 클릭 완료")
             else:
                 print("  [체크] remote_left 버튼을 찾지 못했습니다.")
+            btn_top_menu_items = driver.execute_script(
+                'return document.querySelectorAll(".btn-top-menu a");'
+            )
+            if btn_top_menu_items:
+                driver.execute_script(
+                    'document.querySelectorAll(".btn-top-menu a")[0].click();'
+                )
+                print("  [체크] .btn-top-menu 첫 번째 버튼 클릭 완료")
+            else:
+                print("  [체크] .btn-top-menu 버튼을 찾지 못했습니다.")
+            time.sleep(0.5)
+            close_items = driver.execute_script(
+                'return document.querySelectorAll(".close_o");'
+            )
+            if close_items:
+                driver.execute_script(
+                    'document.querySelectorAll(".close_o")[0].click();'
+                )
+                print("  [체크] .close_o 첫 번째 버튼 클릭 완료")
+            else:
+                print("  [체크] .close_o 버튼을 찾지 못했습니다.")
             stop_event.set()
             return True
         else:
-            print(f"  [체크] .hidden.step2 존재 ({success_elements}개) → 계속 진행")
+            print("  [체크] #study_end.active 없음 → 계속 진행")
             return False
     except NoSuchWindowException:
         raise
