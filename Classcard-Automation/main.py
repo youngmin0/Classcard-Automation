@@ -1,6 +1,11 @@
+import os
 import threading
+from dotenv import load_dotenv
 from pynput import keyboard
 from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from pynput.keyboard import GlobalHotKeys
 from selenium.webdriver.chrome.options import Options
 import atexit
@@ -10,8 +15,10 @@ import Memorize
 import MemorizeSentence
 import RecallSentence
 import HtmlParser
-   
-URL = 'https://www.classcard.net/Login' # 클카 로그인 페이지
+
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+
+URL = 'https://www.classcard.net/Login'
 
 driver = None
 answer_dict = None
@@ -34,11 +41,53 @@ def initialize_browser():
     try:
         driver_instance = webdriver.Chrome(options=chrome_options)
         driver_instance.get(URL)
+        auto_login(driver_instance)
         return driver_instance
     except Exception as e:
         print(f"드라이버 시작 중 오류 발생: {e}")
         print("ChromeDriver가 설치되어 있고, 버전이 Chrome 브라우저와 맞는지 확인하세요.")
         return None
+
+
+def auto_login(driver_instance):
+    user_id = os.getenv("CLASSCARD_ID")
+    user_pw = os.getenv("CLASSCARD_PW")
+    class_id = os.getenv("CLASSCARD_CLASS_ID")
+
+    if not user_id or not user_pw:
+        print("[!] .env 파일에 CLASSCARD_ID / CLASSCARD_PW가 없습니다. 수동 로그인하세요.")
+        return
+
+    try:
+        wait = WebDriverWait(driver_instance, 10)
+
+        id_input = wait.until(EC.presence_of_element_located(
+            (By.CSS_SELECTOR, "input[type='text'][name*='id' i], input[type='text'][name*='Id' i], input#userId, input[placeholder*='아이디']")
+        ))
+        pw_input = driver_instance.find_element(
+            By.CSS_SELECTOR, "input[type='password']"
+        )
+
+        id_input.clear()
+        id_input.send_keys(user_id)
+        pw_input.clear()
+        pw_input.send_keys(user_pw)
+
+        login_btn = driver_instance.find_element(
+            By.CSS_SELECTOR, "a.btn-login"
+        )
+        login_btn.click()
+
+        wait.until(EC.url_changes(URL))
+        print(f"[O] 로그인 성공: {user_id}")
+
+        if class_id:
+            driver_instance.get(f"https://www.classcard.net/ClassMain/{class_id}")
+            print(f"[O] 클래스 페이지로 이동: {class_id}")
+
+    except Exception as e:
+        print(f"[!] 자동 로그인 실패: {e}")
+        print("    수동으로 로그인해 주세요.")
 
 def start_automation_spell():
     global automation_thread, stop_event, driver, answer_dict

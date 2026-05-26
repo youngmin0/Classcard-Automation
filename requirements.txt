@@ -1,0 +1,4 @@
+selenium
+pynput
+python-dotenv
+beautifulsoup4
