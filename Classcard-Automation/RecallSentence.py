@@ -17,6 +17,30 @@ def tokenize(text):
     return tokens
 
 
+def strip_parens(text):
+    """`(...)` 형태의 괄호 부분과 주변 공백을 제거하고 공백을 정리."""
+    text = re.sub(r'\s*\([^)]*\)\s*', ' ', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def tokenize_loose(text):
+    """tokenize + 단어 뒤에 붙은 구두점(,.!?;:)을 별도 토큰으로 분리."""
+    result = []
+    for t in tokenize(text):
+        m = re.match(r'^(.+?)([,.!?;:]+)$', t)
+        if m and re.search(r'\w', m.group(1)):
+            result.append(m.group(1))
+            result.append(m.group(2))
+        else:
+            result.append(t)
+    return result
+
+
+def is_prefix_punct_split(prefix_tokens):
+    """prefix에 단독 구두점 토큰이 있으면 화면이 구두점을 분리해서 표시한 것."""
+    return any(re.fullmatch(r'[,.!?;:]+', t) for t in prefix_tokens)
+
+
 def get_prefix_tokens(driver):
     try:
         input_box = driver.find_element(By.CSS_SELECTOR, ".active .input-box")
@@ -40,7 +64,7 @@ def get_available_tokens(driver):
         return []
 
 
-def find_matching_sentences(prefix_tokens, answer_dict):
+def find_matching_sentences(prefix_tokens, answer_dict, tokenize_fn=tokenize):
     n = len(prefix_tokens)
     if n == 0:
         return []
@@ -49,7 +73,7 @@ def find_matching_sentences(prefix_tokens, answer_dict):
     matches = []
 
     for sentence in answer_dict.values():
-        sentence_tokens = tokenize(sentence)
+        sentence_tokens = tokenize_fn(sentence)
         if len(sentence_tokens) < n:
             continue
         if [t.lower() for t in sentence_tokens[:n]] == lower_prefix:
@@ -58,7 +82,7 @@ def find_matching_sentences(prefix_tokens, answer_dict):
     return matches
 
 
-def find_matching_sentence_fallback(prefix_tokens, available_tokens, answer_dict):
+def find_matching_sentence_fallback(prefix_tokens, available_tokens, answer_dict, tokenize_fn=tokenize):
     n = min(4, len(available_tokens))
     if n == 0:
         return None
@@ -71,7 +95,7 @@ def find_matching_sentence_fallback(prefix_tokens, available_tokens, answer_dict
 
         matched = []
         for sentence in answer_dict.values():
-            sentence_tokens = tokenize(sentence)
+            sentence_tokens = tokenize_fn(sentence)
             if len(sentence_tokens) < candidate_len:
                 continue
             if [t.lower() for t in sentence_tokens[:candidate_len]] == candidate:
@@ -158,14 +182,21 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
                     break
                 continue
 
-            matches = find_matching_sentences(prefix_tokens, answer_dict)
+            tokenize_fn = tokenize_loose if is_prefix_punct_split(prefix_tokens) else tokenize
+
+            matches = find_matching_sentences(prefix_tokens, answer_dict, tokenize_fn)
+            working_dict = answer_dict
+
+            if not matches:
+                working_dict = {k: strip_parens(v) for k, v in answer_dict.items()}
+                matches = find_matching_sentences(prefix_tokens, working_dict, tokenize_fn)
 
             if len(matches) == 1:
                 sentence = matches[0]
             elif len(matches) > 1:
                 available_tokens = get_available_tokens(driver)
                 sentence = find_matching_sentence_fallback(
-                    prefix_tokens, available_tokens, answer_dict
+                    prefix_tokens, available_tokens, working_dict, tokenize_fn
                 )
             else:
                 sentence = None
@@ -176,7 +207,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
                     break
                 continue
 
-            all_tokens = tokenize(sentence)
+            all_tokens = tokenize_fn(sentence)
             remaining_tokens = all_tokens[len(prefix_tokens):]
             click_remaining_tokens(driver, remaining_tokens, stop_event)
 

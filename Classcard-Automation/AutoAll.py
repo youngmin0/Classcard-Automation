@@ -79,9 +79,17 @@ def wait_for_set_list(driver, timeout=10) -> bool:
 
 
 def is_mode_completed(driver, btn_selector) -> bool:
+    """data-rate (학습 완료율) >= 100 이면 완료로 간주."""
     try:
         btn = driver.find_element(By.CSS_SELECTOR, btn_selector)
-        return len(btn.find_elements(By.CSS_SELECTOR, '.check-icon')) > 0
+        rate_els = btn.find_elements(By.CSS_SELECTOR, '[data-rate]')
+        if not rate_els:
+            return False
+        try:
+            rate = int(rate_els[0].get_attribute('data-rate'))
+        except (TypeError, ValueError):
+            return False
+        return rate >= 100
     except Exception:
         return False
 

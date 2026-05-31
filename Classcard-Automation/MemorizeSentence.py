@@ -27,15 +27,20 @@ def get_korean_sentence(driver):
 
 
 def parse_english_words(front_sentence):
-    """예) "Hello, world! Don't stop." -> ["Hello", "world", "Dont", "stop"]"""
-    tokens = front_sentence.split()
+    """영어 문장을 클릭 단위 토큰으로 분리. 괄호 `(...)`는 한 덩어리 scramble-item으로 표시되므로 통째로 유지.
+    클릭 비교는 알파벳/숫자만 남긴 형태로 한다 (구두점 무시).
+
+    예) "When I looked back (on the old days), it all"
+        -> ["When", "I", "looked", "back", "onTheOldDays", "it", "all"]
+        "Hello, world! Don't stop."
+        -> ["Hello", "world", "Dont", "stop"]
+    """
+    raw_tokens = re.findall(r'\([^)]*\)|\S+', front_sentence)
     parsed = []
-    for token in tokens:
-        parts = re.split(r'(\([^)]*\))', token)
-        for part in parts:
-            cleaned = re.sub(r"[^a-zA-Z0-9]", "", part)
-            if cleaned:
-                parsed.append(cleaned)
+    for token in raw_tokens:
+        cleaned = re.sub(r"[^a-zA-Z0-9]", "", token)
+        if cleaned:
+            parsed.append(cleaned)
     return parsed
 
 
