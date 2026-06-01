@@ -171,7 +171,7 @@ def click_remaining_tokens(driver, remaining_tokens, stop_event):
             print(f"  단어 클릭 오류 ({token}): {e}")
 
         # 0.3초 간격
-        if stop_event.wait(timeout=0.3):
+        if stop_event.wait(timeout=0.1):
             break
 
 
@@ -184,7 +184,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             # 1. 접두사 토큰 읽기
             prefix_tokens = get_prefix_tokens(driver)
             if not prefix_tokens:
-                if stop_event.wait(timeout=0.5):
+                if stop_event.wait(timeout=0.3):
                     break
                 continue
 
@@ -207,7 +207,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
 
             if not sentence:
                 print(f"  [!] 접두사에 매칭되는 문장을 찾지 못했습니다.")
-                if stop_event.wait(timeout=0.5):
+                if stop_event.wait(timeout=0.3):
                     break
                 continue
 
@@ -227,7 +227,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             # 5. 완료 후 space 누르기
             print("[완료] space 키 입력")
             driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
-            if stop_event.wait(timeout=1.0):
+            if stop_event.wait(timeout=0.3):
                 break
 
             # 6. step2 성공 여부 확인 → 없으면 버튼 클릭 후 자동화 중지

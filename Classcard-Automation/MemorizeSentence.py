@@ -117,7 +117,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             # 2. 현재 화면의 한글 문장 읽기
             korean_text = get_korean_sentence(driver)
             if korean_text is None:
-                if stop_event.wait(timeout=0.5):
+                if stop_event.wait(timeout=0.3):
                     break
                 continue
 
@@ -134,7 +134,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             if not found_key:
                 print(f"  [!] 딕셔너리에서 대응하는 영어 문장을 찾지 못했습니다.")
                 print(f"  [디버그] 화면 텍스트 (repr): {repr(korean_text)}")
-                if stop_event.wait(timeout=0.5):
+                if stop_event.wait(timeout=0.3):
                     break
                 continue
 
@@ -152,7 +152,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
                 success = click_scramble_word(driver, word)
                 if success:
                     print(f"  클릭: {word}")
-                if stop_event.wait(timeout=0.3):
+                if stop_event.wait(timeout=0.1):
                     break
 
             if stop_event.is_set():
@@ -161,7 +161,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             # 6. 문장 완료 후 space 누르고 1초 대기 후 다음 문장으로
             print("[완료] 문장 입력 완료. space 키 입력 후 다음 문장으로 이동합니다...")
             driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
-            if stop_event.wait(timeout=0.5):
+            if stop_event.wait(timeout=0.3):
                 break
 
             # 7. step2 성공 여부 확인 → 없으면 버튼 클릭 후 자동화 중지
