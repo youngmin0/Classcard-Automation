@@ -15,6 +15,7 @@ import Memorize
 import MemorizeSentence
 import RecallSentence
 import HtmlParser
+import AutoAll
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
@@ -184,6 +185,22 @@ def start_automation_recall_sentence():
         else:
             print("\n[N] 자동화가 이미 실행 중입니다.")
 
+def start_automation_all():
+    global automation_thread, stop_event, driver
+    if driver is None:
+        print("\n[!] 드라이버가 준비되지 않았습니다.")
+        return
+    with automation_lock:
+        if automation_thread is None or not automation_thread.is_alive():
+            stop_event = threading.Event()
+            automation_thread = threading.Thread(
+                target=AutoAll.run_full_automation_loop,
+                args=(driver, stop_event)
+            )
+            automation_thread.start()
+        else:
+            print("\n[A] 자동화가 이미 실행 중입니다.")
+
 def stop_automation():
     global automation_thread, stop_event
     
@@ -237,6 +254,7 @@ if __name__ == "__main__":
         print("   [Ctrl + X] 키 : 스펠 자동화 시작")
         print("   [Ctrl + B] 키 : 문장 암기 자동화 시작")
         print("   [Ctrl + Q] 키 : 문장 리콜 자동화 시작")
+        print("   [Ctrl + A] 키 : 전체 자동화 시작 (단어장 목록 페이지에서)")
         print("   [Ctrl + E] 키 : 자동화 멈추기")
         print("   [Ctrl + M] 키 : 단어장 가져오기")
         print("   [Esc] 키      : 프로그램 전체 종료 (브라우저 닫힘)")
@@ -248,6 +266,7 @@ if __name__ == "__main__":
             '<ctrl>+i': start_automation_memorize,
             '<ctrl>+b': start_automation_memorize_sentence,
             '<ctrl>+q': start_automation_recall_sentence,
+            '<ctrl>+a': start_automation_all,
             '<ctrl>+e': stop_automation,
             '<ctrl>+m': html_parse,
         })

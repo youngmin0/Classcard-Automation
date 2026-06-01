@@ -1,4 +1,5 @@
 import re
+import time
 import threading
 from itertools import permutations as iperms
 from selenium.webdriver.common.by import By
@@ -7,23 +8,57 @@ from selenium.common.exceptions import NoSuchWindowException
 
 
 def tokenize(text):
-    """텍스트를 토큰 리스트로 분리합니다.
-    - 띄어쓰기로 1차 분리
-    - 쉼표·마침표 등 구두점은 그대로 유지
-    - 'in(to)' 처럼 단어 중간에 '('가 있으면 앞에서 추가 분리
-      예) 'in(to)' → ['in', '(to)']
-    """
+    """텍스트를 토큰으로 분리. 'in(to)' 처럼 단어 중간의 '(' 앞에서 추가 분리."""
     words = text.split()
     tokens = []
     for word in words:
-        # 단어 중간(앞에 비공백 문자가 있는) '(' 앞에서 분리
         parts = re.split(r'(?<=\S)(?=\()', word)
         tokens.extend(p for p in parts if p)
     return tokens
 
 
+def strip_parens(text):
+    """`(...)` 형태의 괄호 부분과 주변 공백을 제거하고 공백을 정리."""
+    text = re.sub(r'\s*\([^)]*\)\s*', ' ', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def tokenize_loose(text):
+    """tokenize + 단어 뒤에 붙은 구두점(,.!?;:)을 별도 토큰으로 분리."""
+    result = []
+    for t in tokenize(text):
+        m = re.match(r'^(.+?)([,.!?;:]+)$', t)
+        if m and re.search(r'\w', m.group(1)):
+            result.append(m.group(1))
+            result.append(m.group(2))
+        else:
+            result.append(t)
+    return result
+
+
+def is_prefix_punct_split(prefix_tokens):
+    """prefix에 단독 구두점 토큰이 있으면 화면이 구두점을 분리해서 표시한 것."""
+    return any(re.fullmatch(r'[,.!?;:]+', t) for t in prefix_tokens)
+
+
+def find_subsequence_end(prefix_tokens, sentence_tokens) -> int:
+    """prefix_tokens가 sentence_tokens의 부분 수열이면 마지막 매칭 인덱스, 아니면 -1.
+    대소문자 무시."""
+    p_low = [t.lower() for t in prefix_tokens]
+    if not p_low:
+        return -1
+    i = 0
+    last = -1
+    for idx, t in enumerate(sentence_tokens):
+        if t.lower() == p_low[i]:
+            last = idx
+            i += 1
+            if i == len(p_low):
+                return last
+    return -1
+
+
 def get_prefix_tokens(driver):
-    """.active .input-box에 이미 배치된 접두사 토큰들을 가져옵니다."""
     try:
         input_box = driver.find_element(By.CSS_SELECTOR, ".active .input-box")
         text = input_box.text.strip()[:-1]
@@ -32,27 +67,21 @@ def get_prefix_tokens(driver):
         return tokenize(text)
     except NoSuchWindowException:
         raise
-    except Exception as e:
-        print(f"접두사 읽기 오류: {e}")
+    except Exception:
         return []
 
 
 def get_available_tokens(driver):
-    """현재 클릭 가능한 .btn-scramble.clickable 버튼들의 텍스트를 리스트로 반환합니다."""
     try:
         buttons = driver.find_elements(By.CSS_SELECTOR, ".btn-scramble.clickable")
         return [btn.text.strip() for btn in buttons if btn.text.strip()]
     except NoSuchWindowException:
         raise
-    except Exception as e:
-        print(f"가용 버튼 읽기 오류: {e}")
+    except Exception:
         return []
 
 
-def find_matching_sentences(prefix_tokens, answer_dict):
-    """접두사 토큰들에 매칭되는 영어 문장을 answer_dict에서 모두 찾아 리스트로 반환합니다.
-    대소문자는 무시하고 비교합니다.
-    """
+def find_matching_sentences(prefix_tokens, answer_dict, tokenize_fn=tokenize):
     n = len(prefix_tokens)
     if n == 0:
         return []
@@ -61,7 +90,7 @@ def find_matching_sentences(prefix_tokens, answer_dict):
     matches = []
 
     for sentence in answer_dict.values():
-        sentence_tokens = tokenize(sentence)
+        sentence_tokens = tokenize_fn(sentence)
         if len(sentence_tokens) < n:
             continue
         if [t.lower() for t in sentence_tokens[:n]] == lower_prefix:
@@ -70,11 +99,7 @@ def find_matching_sentences(prefix_tokens, answer_dict):
     return matches
 
 
-def find_matching_sentence_fallback(prefix_tokens, available_tokens, answer_dict):
-    """접두사가 여러 문장에 중의적으로 매칭될 때 사용하는 폴백.
-    available_tokens에서 4개를 뽑아 4!(= 24)가지 순열로 접두사 뒤에 이어붙여
-    정확히 하나의 문장 접두사와 일치하는 경우를 찾습니다.
-    """
+def find_matching_sentence_fallback(prefix_tokens, available_tokens, answer_dict, tokenize_fn=tokenize):
     n = min(4, len(available_tokens))
     if n == 0:
         return None
@@ -87,7 +112,7 @@ def find_matching_sentence_fallback(prefix_tokens, available_tokens, answer_dict
 
         matched = []
         for sentence in answer_dict.values():
-            sentence_tokens = tokenize(sentence)
+            sentence_tokens = tokenize_fn(sentence)
             if len(sentence_tokens) < candidate_len:
                 continue
             if [t.lower() for t in sentence_tokens[:candidate_len]] == candidate:
@@ -100,38 +125,44 @@ def find_matching_sentence_fallback(prefix_tokens, available_tokens, answer_dict
 
 
 def check_step2_success_and_stop(driver, stop_event):
-    """완료 후 .hidden.step2 가 없으면 원격 버튼을 클릭하고 자동화를 중지합니다."""
+    """`.btn-study-end-repeat` 버튼이 보이면 완료. set 페이지로 복귀 후 stop."""
     try:
-        success_elements = driver.execute_script(
-            'return document.querySelectorAll(".hidden.step2").length;'
+        done = driver.execute_script(
+            'return document.querySelectorAll("#study_end.active .btn-study-end-repeat").length > 0;'
         )
-        if success_elements == 0:
-            print("  [체크] .hidden.step2 없음 → 원격 버튼 클릭 후 자동화 중지")
-            remote_items = driver.execute_script(
-                'return document.querySelectorAll("#study_end.active .study-header a");'
-            )
-            if remote_items:
-                driver.execute_script(
-                    'document.querySelectorAll("#study_end.active .study-header a")[0].click();'
-                )
-                print("  [체크] 첫 번째 remote_left 버튼 클릭 완료")
-            else:
-                print("  [체크] remote_left 버튼을 찾지 못했습니다.")
-            stop_event.set()
-            return True
-        else:
-            print(f"  [체크] .hidden.step2 존재 ({success_elements}개) → 계속 진행")
+        if not done:
             return False
+        driver.execute_script(
+            'var a = document.querySelectorAll("#study_end.active .study-header a"); if (a.length) a[0].click();'
+        )
+        driver.execute_script(
+            'var a = document.querySelectorAll(".btn-top-menu a"); if (a.length) a[0].click();'
+        )
+        time.sleep(0.5)
+        driver.execute_script(
+            'var a = document.querySelectorAll(".close_o"); if (a.length) a[0].click();'
+        )
+        stop_event.set()
+        return True
     except NoSuchWindowException:
         raise
-    except Exception as e:
-        print(f"  [체크] 완료 확인 중 오류: {e}")
+    except Exception:
         return False
 
 
+def _click_button(driver, btn):
+    try:
+        btn.click()
+    except Exception:
+        driver.execute_script("arguments[0].click();", btn)
+
+
 def click_remaining_tokens(driver, remaining_tokens, stop_event):
-    """남은 토큰들을 .btn-scramble.clickable에서 찾아 순서대로 클릭합니다.
-    버튼 텍스트와 토큰을 그대로(구두점 포함) 비교합니다.
+    """화면 가용 scramble 버튼에 있는 토큰만 순서대로 클릭.
+
+    매칭 우선순위: 정확 일치 → 대소문자 무시 → 구두점 무시(알파벳/숫자만 비교).
+    화면에 없는 단어 토큰이 나오면 즉시 break (다음 사이클에서 prefix 재읽고 진행).
+    단독 구두점 토큰은 화면에 별도 버튼이 없는 게 정상이므로 skip만 하고 다음 토큰으로.
     """
     for token in remaining_tokens:
         if stop_event.is_set():
@@ -139,111 +170,122 @@ def click_remaining_tokens(driver, remaining_tokens, stop_event):
 
         try:
             buttons = driver.find_elements(By.CSS_SELECTOR, ".btn-scramble.clickable:not(.clicked)")
+            if not buttons:
+                break
+
             clicked = False
+
             for btn in buttons:
                 if btn.text.strip() == token:
-                    try:
-                        btn.click()
-                    except Exception:
-                        driver.execute_script("arguments[0].click();", btn)
-                    print(f"  클릭: {token}")
+                    _click_button(driver, btn)
                     clicked = True
                     break
 
             if not clicked:
-                # 대소문자 무시 폴백
                 for btn in buttons:
                     if btn.text.strip().lower() == token.lower():
-                        try:
-                            btn.click()
-                        except Exception:
-                            driver.execute_script("arguments[0].click();", btn)
-                        print(f"  클릭(대소문자 무시): {token}")
+                        _click_button(driver, btn)
                         clicked = True
                         break
 
             if not clicked:
-                print(f"  [!] 버튼을 찾지 못했습니다: '{token}'")
+                token_clean = re.sub(r"[^a-zA-Z0-9]", "", token).lower()
+                if token_clean:
+                    for btn in buttons:
+                        btn_clean = re.sub(r"[^a-zA-Z0-9]", "", btn.text.strip()).lower()
+                        if btn_clean == token_clean:
+                            _click_button(driver, btn)
+                            clicked = True
+                            break
+
+            if not clicked:
+                if re.fullmatch(r'[,.!?;:]+', token):
+                    continue
+                break
 
         except NoSuchWindowException:
             raise
-        except Exception as e:
-            print(f"  단어 클릭 오류 ({token}): {e}")
+        except Exception:
+            pass
 
-        # 0.3초 간격
-        if stop_event.wait(timeout=0.1):
+
+        if stop_event.wait(timeout=0.3):
             break
 
 
 def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
-    print("\n[문장 리콜 자동화 시작] (종료하려면 'ctrl + E' 키)")
-    print("---------------------------------------------------------")
+    print("[문장 리콜] 시작")
 
     try:
         while not stop_event.is_set():
-            # 1. 접두사 토큰 읽기
             prefix_tokens = get_prefix_tokens(driver)
             if not prefix_tokens:
-                if stop_event.wait(timeout=0.3):
+                if check_step2_success_and_stop(driver, stop_event):
+                    break
+                if stop_event.wait(timeout=0.5):
                     break
                 continue
 
-            print(f"\n[접두사] {prefix_tokens}")
+            tokenize_fn = tokenize_loose if is_prefix_punct_split(prefix_tokens) else tokenize
 
-            # 2. 접두사에 매칭되는 영어 문장 찾기
-            matches = find_matching_sentences(prefix_tokens, answer_dict)
+            matches = find_matching_sentences(prefix_tokens, answer_dict, tokenize_fn)
+            working_dict = answer_dict
+
+            if not matches:
+                working_dict = {k: strip_parens(v) for k, v in answer_dict.items()}
+                matches = find_matching_sentences(prefix_tokens, working_dict, tokenize_fn)
+
+            sentence = None
+            subseq_end = -1
 
             if len(matches) == 1:
                 sentence = matches[0]
             elif len(matches) > 1:
-                # 2-1. 여러 문장이 매칭되면 순열로 범위를 좁힘
                 available_tokens = get_available_tokens(driver)
-                print(f"  [중의적 접두사] {len(matches)}개 매칭 → 가용 버튼 {len(available_tokens)}개로 4-순열 탐색 중...")
                 sentence = find_matching_sentence_fallback(
-                    prefix_tokens, available_tokens, answer_dict
+                    prefix_tokens, available_tokens, working_dict, tokenize_fn
                 )
-            else:
-                sentence = None
 
             if not sentence:
-                print(f"  [!] 접두사에 매칭되는 문장을 찾지 못했습니다.")
-                if stop_event.wait(timeout=0.3):
+                candidates = []
+                for s in working_dict.values():
+                    s_tokens = tokenize_fn(s)
+                    end = find_subsequence_end(prefix_tokens, s_tokens)
+                    if end >= 0:
+                        candidates.append((s, end, s_tokens))
+                if candidates:
+                    candidates.sort(key=lambda c: len(c[2]))
+                    sentence, subseq_end, _ = candidates[0]
+                    print(f"[문장 리콜] subsequence 매칭")
+
+            if not sentence:
+                print(f"[문장 리콜] 매칭 실패: {prefix_tokens}")
+                if stop_event.wait(timeout=0.5):
                     break
                 continue
 
-            print(f"[문장] {sentence}")
+            all_tokens = tokenize_fn(sentence)
+            if subseq_end >= 0:
+                remaining_tokens = all_tokens[subseq_end + 1:]
+            else:
+                remaining_tokens = all_tokens[len(prefix_tokens):]
 
-            # 3. 전체 토큰에서 접두사 이후의 남은 토큰들 추출
-            all_tokens = tokenize(sentence)
-            remaining_tokens = all_tokens[len(prefix_tokens):]
-            print(f"[남은 토큰] {remaining_tokens}")
-
-            # 4. 남은 토큰들을 .btn-scramble.clickable에서 순서대로 클릭
             click_remaining_tokens(driver, remaining_tokens, stop_event)
 
             if stop_event.is_set():
                 break
 
-            # 5. 완료 후 space 누르기
-            print("[완료] space 키 입력")
             driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
-            if stop_event.wait(timeout=0.3):
+            if stop_event.wait(timeout=1.0):
                 break
 
-            # 6. step2 성공 여부 확인 → 없으면 버튼 클릭 후 자동화 중지
             if check_step2_success_and_stop(driver, stop_event):
                 break
 
     except NoSuchWindowException:
-        if not stop_event.is_set():
-            print("\n브라우저 창이 닫혀 자동화를 중지합니다.")
+        pass
     except Exception as e:
         if not stop_event.is_set():
-            print(f"\n자동화 루프 중 오류 발생: {e}")
-            if "target window is closed" in str(e) or "invalid session id" in str(e):
-                print("브라우저 창이 닫혀 자동화를 중지합니다.")
+            print(f"[문장 리콜] 오류: {e}")
     finally:
-        if stop_event.is_set():
-            print("\n[ctrl + E] 자동화 중지 신호를 받았습니다. 루프를 종료합니다.")
-        else:
-            print("\n자동화 루프가 종료되었습니다.")
+        print("[문장 리콜] 종료")
