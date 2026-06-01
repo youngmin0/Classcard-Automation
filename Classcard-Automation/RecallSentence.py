@@ -41,6 +41,23 @@ def is_prefix_punct_split(prefix_tokens):
     return any(re.fullmatch(r'[,.!?;:]+', t) for t in prefix_tokens)
 
 
+def find_subsequence_end(prefix_tokens, sentence_tokens) -> int:
+    """prefix_tokens가 sentence_tokens의 부분 수열이면 마지막 매칭 인덱스, 아니면 -1.
+    대소문자 무시."""
+    p_low = [t.lower() for t in prefix_tokens]
+    if not p_low:
+        return -1
+    i = 0
+    last = -1
+    for idx, t in enumerate(sentence_tokens):
+        if t.lower() == p_low[i]:
+            last = idx
+            i += 1
+            if i == len(p_low):
+                return last
+    return -1
+
+
 def get_prefix_tokens(driver):
     try:
         input_box = driver.find_element(By.CSS_SELECTOR, ".active .input-box")
@@ -133,37 +150,64 @@ def check_step2_success_and_stop(driver, stop_event):
         return False
 
 
+def _click_button(driver, btn):
+    try:
+        btn.click()
+    except Exception:
+        driver.execute_script("arguments[0].click();", btn)
+
+
 def click_remaining_tokens(driver, remaining_tokens, stop_event):
+    """화면 가용 scramble 버튼에 있는 토큰만 순서대로 클릭.
+
+    매칭 우선순위: 정확 일치 → 대소문자 무시 → 구두점 무시(알파벳/숫자만 비교).
+    화면에 없는 단어 토큰이 나오면 즉시 break (다음 사이클에서 prefix 재읽고 진행).
+    단독 구두점 토큰은 화면에 별도 버튼이 없는 게 정상이므로 skip만 하고 다음 토큰으로.
+    """
     for token in remaining_tokens:
         if stop_event.is_set():
             break
 
         try:
             buttons = driver.find_elements(By.CSS_SELECTOR, ".btn-scramble.clickable:not(.clicked)")
+            if not buttons:
+                break
+
             clicked = False
+
             for btn in buttons:
                 if btn.text.strip() == token:
-                    try:
-                        btn.click()
-                    except Exception:
-                        driver.execute_script("arguments[0].click();", btn)
+                    _click_button(driver, btn)
                     clicked = True
                     break
 
             if not clicked:
                 for btn in buttons:
                     if btn.text.strip().lower() == token.lower():
-                        try:
-                            btn.click()
-                        except Exception:
-                            driver.execute_script("arguments[0].click();", btn)
+                        _click_button(driver, btn)
                         clicked = True
                         break
+
+            if not clicked:
+                token_clean = re.sub(r"[^a-zA-Z0-9]", "", token).lower()
+                if token_clean:
+                    for btn in buttons:
+                        btn_clean = re.sub(r"[^a-zA-Z0-9]", "", btn.text.strip()).lower()
+                        if btn_clean == token_clean:
+                            _click_button(driver, btn)
+                            clicked = True
+                            break
+
+            if not clicked:
+                if re.fullmatch(r'[,.!?;:]+', token):
+                    continue
+                break
 
         except NoSuchWindowException:
             raise
         except Exception:
             pass
+
 
         if stop_event.wait(timeout=0.3):
             break
@@ -191,6 +235,9 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
                 working_dict = {k: strip_parens(v) for k, v in answer_dict.items()}
                 matches = find_matching_sentences(prefix_tokens, working_dict, tokenize_fn)
 
+            sentence = None
+            subseq_end = -1
+
             if len(matches) == 1:
                 sentence = matches[0]
             elif len(matches) > 1:
@@ -198,8 +245,18 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
                 sentence = find_matching_sentence_fallback(
                     prefix_tokens, available_tokens, working_dict, tokenize_fn
                 )
-            else:
-                sentence = None
+
+            if not sentence:
+                candidates = []
+                for s in working_dict.values():
+                    s_tokens = tokenize_fn(s)
+                    end = find_subsequence_end(prefix_tokens, s_tokens)
+                    if end >= 0:
+                        candidates.append((s, end, s_tokens))
+                if candidates:
+                    candidates.sort(key=lambda c: len(c[2]))
+                    sentence, subseq_end, _ = candidates[0]
+                    print(f"[문장 리콜] subsequence 매칭")
 
             if not sentence:
                 print(f"[문장 리콜] 매칭 실패: {prefix_tokens}")
@@ -208,7 +265,11 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
                 continue
 
             all_tokens = tokenize_fn(sentence)
-            remaining_tokens = all_tokens[len(prefix_tokens):]
+            if subseq_end >= 0:
+                remaining_tokens = all_tokens[subseq_end + 1:]
+            else:
+                remaining_tokens = all_tokens[len(prefix_tokens):]
+
             click_remaining_tokens(driver, remaining_tokens, stop_event)
 
             if stop_event.is_set():
