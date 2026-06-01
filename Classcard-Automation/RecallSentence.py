@@ -23,22 +23,40 @@ def strip_parens(text):
     return re.sub(r'\s+', ' ', text).strip()
 
 
+_UNICODE_NORMALIZE = {
+    '‘': "'", '’': "'", '‚': "'", '‛': "'",
+    '“': '"', '”': '"', '„': '"', '‟': '"',
+    '–': '-', '—': '-', '−': '-',
+    '…': '...',
+}
+
+
+def normalize_unicode(text):
+    """유니코드 인용부호/대시를 ASCII 등가물로 정규화."""
+    for k, v in _UNICODE_NORMALIZE.items():
+        text = text.replace(k, v)
+    return text
+
+
 def tokenize_loose(text):
-    """tokenize + 단어 뒤에 붙은 구두점(,.!?;:)을 별도 토큰으로 분리."""
+    """tokenize + 하이픈(-, –, —)·끝 구두점(,.!?;:)을 별도 토큰으로 분리."""
     result = []
     for t in tokenize(text):
-        m = re.match(r'^(.+?)([,.!?;:]+)$', t)
-        if m and re.search(r'\w', m.group(1)):
-            result.append(m.group(1))
-            result.append(m.group(2))
-        else:
-            result.append(t)
+        for piece in re.split(r'([-–—])', t):
+            if not piece:
+                continue
+            m = re.match(r'^(.+?)([,.!?;:]+)$', piece)
+            if m and re.search(r'\w', m.group(1)):
+                result.append(m.group(1))
+                result.append(m.group(2))
+            else:
+                result.append(piece)
     return result
 
 
 def is_prefix_punct_split(prefix_tokens):
-    """prefix에 단독 구두점 토큰이 있으면 화면이 구두점을 분리해서 표시한 것."""
-    return any(re.fullmatch(r'[,.!?;:]+', t) for t in prefix_tokens)
+    """prefix에 단독 구두점/하이픈 토큰이 있으면 화면이 분리해서 표시한 것."""
+    return any(re.fullmatch(r'[,.!?;:\-–—]+', t) for t in prefix_tokens)
 
 
 def find_subsequence_end(prefix_tokens, sentence_tokens) -> int:
@@ -160,9 +178,9 @@ def _click_button(driver, btn):
 def click_remaining_tokens(driver, remaining_tokens, stop_event):
     """화면 가용 scramble 버튼에 있는 토큰만 순서대로 클릭.
 
-    매칭 우선순위: 정확 일치 → 대소문자 무시 → 구두점 무시(알파벳/숫자만 비교).
-    화면에 없는 단어 토큰이 나오면 즉시 break (다음 사이클에서 prefix 재읽고 진행).
-    단독 구두점 토큰은 화면에 별도 버튼이 없는 게 정상이므로 skip만 하고 다음 토큰으로.
+    매칭 우선순위: 정확 일치(정규화) → 대소문자 무시 → 구두점 무시(알파벳/숫자만 비교).
+    화면에 없는 단어 토큰이 나오면 즉시 break.
+    단독 구두점/하이픈 토큰은 화면에 별도 버튼이 없는 게 정상이므로 skip만 하고 다음 토큰으로.
     """
     for token in remaining_tokens:
         if stop_event.is_set():
@@ -176,14 +194,14 @@ def click_remaining_tokens(driver, remaining_tokens, stop_event):
             clicked = False
 
             for btn in buttons:
-                if btn.text.strip() == token:
+                if normalize_unicode(btn.text.strip()) == token:
                     _click_button(driver, btn)
                     clicked = True
                     break
 
             if not clicked:
                 for btn in buttons:
-                    if btn.text.strip().lower() == token.lower():
+                    if normalize_unicode(btn.text.strip()).lower() == token.lower():
                         _click_button(driver, btn)
                         clicked = True
                         break
@@ -192,14 +210,14 @@ def click_remaining_tokens(driver, remaining_tokens, stop_event):
                 token_clean = re.sub(r"[^a-zA-Z0-9]", "", token).lower()
                 if token_clean:
                     for btn in buttons:
-                        btn_clean = re.sub(r"[^a-zA-Z0-9]", "", btn.text.strip()).lower()
+                        btn_clean = re.sub(r"[^a-zA-Z0-9]", "", normalize_unicode(btn.text.strip())).lower()
                         if btn_clean == token_clean:
                             _click_button(driver, btn)
                             clicked = True
                             break
 
             if not clicked:
-                if re.fullmatch(r'[,.!?;:]+', token):
+                if re.fullmatch(r'[,.!?;:\-–—\'"]+', token):
                     continue
                 break
 
@@ -209,7 +227,7 @@ def click_remaining_tokens(driver, remaining_tokens, stop_event):
             pass
 
 
-        if stop_event.wait(timeout=0.3):
+        if stop_event.wait(timeout=0.2):
             break
 
 
@@ -222,17 +240,20 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             if not prefix_tokens:
                 if check_step2_success_and_stop(driver, stop_event):
                     break
-                if stop_event.wait(timeout=0.5):
+                if stop_event.wait(timeout=0.3):
                     break
                 continue
 
+            prefix_tokens = [normalize_unicode(t) for t in prefix_tokens]
             tokenize_fn = tokenize_loose if is_prefix_punct_split(prefix_tokens) else tokenize
 
-            matches = find_matching_sentences(prefix_tokens, answer_dict, tokenize_fn)
-            working_dict = answer_dict
+            normalized_dict = {k: normalize_unicode(v) for k, v in answer_dict.items()}
+
+            matches = find_matching_sentences(prefix_tokens, normalized_dict, tokenize_fn)
+            working_dict = normalized_dict
 
             if not matches:
-                working_dict = {k: strip_parens(v) for k, v in answer_dict.items()}
+                working_dict = {k: strip_parens(v) for k, v in normalized_dict.items()}
                 matches = find_matching_sentences(prefix_tokens, working_dict, tokenize_fn)
 
             sentence = None
@@ -256,11 +277,10 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
                 if candidates:
                     candidates.sort(key=lambda c: len(c[2]))
                     sentence, subseq_end, _ = candidates[0]
-                    print(f"[문장 리콜] subsequence 매칭")
 
             if not sentence:
                 print(f"[문장 리콜] 매칭 실패: {prefix_tokens}")
-                if stop_event.wait(timeout=0.5):
+                if stop_event.wait(timeout=0.3):
                     break
                 continue
 
@@ -270,13 +290,35 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             else:
                 remaining_tokens = all_tokens[len(prefix_tokens):]
 
+            if any('(' in t or ')' in t for t in remaining_tokens):
+                stripped_dict = {k: strip_parens(v) for k, v in normalized_dict.items()}
+                alt = find_matching_sentences(prefix_tokens, stripped_dict, tokenize_fn)
+                alt_sentence = alt[0] if len(alt) == 1 else None
+                if alt_sentence is None:
+                    alt_cands = []
+                    for s_alt in stripped_dict.values():
+                        s_tok = tokenize_fn(s_alt)
+                        end_alt = find_subsequence_end(prefix_tokens, s_tok)
+                        if end_alt >= 0:
+                            alt_cands.append((s_alt, end_alt, s_tok))
+                    if alt_cands:
+                        alt_cands.sort(key=lambda c: len(c[2]))
+                        alt_sentence, subseq_end, all_tokens = alt_cands[0]
+                        remaining_tokens = all_tokens[subseq_end + 1:]
+                        sentence = alt_sentence
+                else:
+                    sentence = alt_sentence
+                    all_tokens = tokenize_fn(sentence)
+                    remaining_tokens = all_tokens[len(prefix_tokens):]
+                    subseq_end = -1
+
             click_remaining_tokens(driver, remaining_tokens, stop_event)
 
             if stop_event.is_set():
                 break
 
             driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
-            if stop_event.wait(timeout=1.0):
+            if stop_event.wait(timeout=0.7):
                 break
 
             if check_step2_success_and_stop(driver, stop_event):

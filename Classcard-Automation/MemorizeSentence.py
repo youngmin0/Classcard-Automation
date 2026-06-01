@@ -27,21 +27,8 @@ def get_korean_sentence(driver):
 
 
 def parse_english_words(front_sentence):
-    """영어 문장을 클릭 단위 토큰으로 분리. 괄호 `(...)`는 한 덩어리 scramble-item으로 표시되므로 통째로 유지.
-    클릭 비교는 알파벳/숫자만 남긴 형태로 한다 (구두점 무시).
-
-    예) "When I looked back (on the old days), it all"
-        -> ["When", "I", "looked", "back", "onTheOldDays", "it", "all"]
-        "Hello, world! Don't stop."
-        -> ["Hello", "world", "Dont", "stop"]
-    """
-    raw_tokens = re.findall(r'\([^)]*\)|\S+', front_sentence)
-    parsed = []
-    for token in raw_tokens:
-        cleaned = re.sub(r"[^a-zA-Z0-9]", "", token)
-        if cleaned:
-            parsed.append(cleaned)
-    return parsed
+    """영어 문장을 raw 토큰으로 분리 (괄호 묶음은 통째). 클릭 매칭은 click_scramble_word가 담당."""
+    return re.findall(r'\([^)]*\)|\S+', front_sentence)
 
 
 def check_step2_success_and_stop(driver, stop_event):
@@ -70,17 +57,49 @@ def check_step2_success_and_stop(driver, stop_event):
         return False
 
 
-def click_scramble_word(driver, word):
+def _click_item(driver, item):
     try:
-        items = driver.find_elements(By.CSS_SELECTOR, ".active .scramble-item:not(.clicked)")
+        item.click()
+    except Exception:
+        driver.execute_script("arguments[0].click();", item)
+
+
+def _try_click_token(driver, raw_token):
+    """단일 raw_token으로 화면 scramble-item 한 개 매칭+클릭. 못 찾으면 False."""
+    items = driver.find_elements(By.CSS_SELECTOR, ".active .scramble-item:not(.clicked)")
+    if raw_token in ('-', '–', '—'):
         for item in items:
-            item_text = re.sub(r"[^a-zA-Z0-9]", "", item.text.strip())
-            if item_text == word:
-                try:
-                    item.click()
-                except Exception:
-                    driver.execute_script("arguments[0].click();", item)
+            if item.text.strip() in ('-', '–', '—'):
+                _click_item(driver, item)
                 return True
+        return False
+    cleaned = re.sub(r"[^a-zA-Z0-9]", "", raw_token)
+    if not cleaned:
+        return False
+    for item in items:
+        if re.sub(r"[^a-zA-Z0-9]", "", item.text.strip()) == cleaned:
+            _click_item(driver, item)
+            return True
+    return False
+
+
+def click_scramble_word(driver, raw_token):
+    """raw_token으로 클릭 시도. 통째 매칭 실패 시 하이픈으로 분리해 부분 매칭 폴백."""
+    try:
+        if _try_click_token(driver, raw_token):
+            return True
+
+        if re.search(r'[-–—]', raw_token):
+            any_clicked = False
+            for sub in re.split(r'([-–—])', raw_token):
+                if not sub:
+                    continue
+                if _try_click_token(driver, sub):
+                    any_clicked = True
+                    time.sleep(0.15)
+            if any_clicked:
+                return True
+
         return False
     except NoSuchWindowException:
         raise
@@ -94,14 +113,14 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
     try:
         while not stop_event.is_set():
             driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
-            if stop_event.wait(timeout=0.5):
+            if stop_event.wait(timeout=0.3):
                 break
 
             korean_text = get_korean_sentence(driver)
             if korean_text is None:
                 if check_step2_success_and_stop(driver, stop_event):
                     break
-                if stop_event.wait(timeout=0.5):
+                if stop_event.wait(timeout=0.3):
                     break
                 continue
 
@@ -114,7 +133,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
 
             if not found_key:
                 print(f"[문장 암기] 매칭 실패: {korean_text!r}")
-                if stop_event.wait(timeout=0.5):
+                if stop_event.wait(timeout=0.3):
                     break
                 continue
 
@@ -125,14 +144,14 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
                 if stop_event.is_set():
                     break
                 click_scramble_word(driver, word)
-                if stop_event.wait(timeout=0.3):
+                if stop_event.wait(timeout=0.2):
                     break
 
             if stop_event.is_set():
                 break
 
             driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
-            if stop_event.wait(timeout=0.5):
+            if stop_event.wait(timeout=0.3):
                 break
 
             if check_step2_success_and_stop(driver, stop_event):

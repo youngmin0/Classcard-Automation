@@ -37,9 +37,9 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
     try:
         while not stop_event.is_set():
             driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
-            time.sleep(1)
+            time.sleep(0.6)
             ActionChains(driver).key_down(Keys.SHIFT).send_keys(Keys.SPACE).key_up(Keys.SHIFT).perform()
-            time.sleep(2)
+            time.sleep(1.3)
 
             if check_step2_success_and_stop(driver, stop_event):
                 break

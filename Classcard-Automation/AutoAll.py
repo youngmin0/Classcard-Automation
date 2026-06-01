@@ -319,14 +319,14 @@ def run_full_automation_loop(driver, stop_event: threading.Event):
                     print(f"[전체] {mode_label} 버튼 클릭 실패. 스킵.")
                     continue
 
-                if stop_event.wait(timeout=1.5):
+                if stop_event.wait(timeout=1.0):
                     break
 
                 if not click_start_learning(driver, stop_event):
                     print(f"[전체] {mode_label} 시작 버튼 클릭 실패. 스킵.")
                     continue
 
-                if stop_event.wait(timeout=1.5):
+                if stop_event.wait(timeout=1.0):
                     break
 
                 run_mode_isolated(driver, mode_fn, answer_dict, stop_event)
