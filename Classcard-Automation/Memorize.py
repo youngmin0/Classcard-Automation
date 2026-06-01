@@ -7,10 +7,10 @@ from selenium.common.exceptions import NoSuchWindowException
 
 
 def check_step2_success_and_stop(driver, stop_event):
-    """`.btn-study-end-repeat` 버튼이 보이면 완료. set 페이지로 복귀 후 stop."""
+    """`#study_end.active` 가 있으면 학습 종료로 간주. set 페이지로 복귀 후 stop."""
     try:
         done = driver.execute_script(
-            'return document.querySelectorAll("#study_end.active .btn-study-end-repeat").length > 0;'
+            'return document.querySelectorAll("#study_end.active").length > 0;'
         )
         if not done:
             return False
