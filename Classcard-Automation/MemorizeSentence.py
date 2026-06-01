@@ -84,7 +84,7 @@ def _try_click_token(driver, raw_token):
 
 
 def click_scramble_word(driver, raw_token):
-    """raw_token으로 클릭 시도. 통째 매칭 실패 시 하이픈으로 분리해 부분 매칭 폴백."""
+    """raw_token으로 클릭 시도. 통째 매칭 실패 시 하이픈/괄호로 분리해 부분 매칭 폴백."""
     try:
         if _try_click_token(driver, raw_token):
             return True
@@ -92,6 +92,17 @@ def click_scramble_word(driver, raw_token):
         if re.search(r'[-–—]', raw_token):
             any_clicked = False
             for sub in re.split(r'([-–—])', raw_token):
+                if not sub:
+                    continue
+                if _try_click_token(driver, sub):
+                    any_clicked = True
+                    time.sleep(0.15)
+            if any_clicked:
+                return True
+
+        if '(' in raw_token and ')' in raw_token:
+            any_clicked = False
+            for sub in re.split(r'(\([^)]*\))', raw_token):
                 if not sub:
                     continue
                 if _try_click_token(driver, sub):

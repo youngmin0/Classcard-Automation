@@ -1,92 +1,126 @@
 import json
+import os
+import time
+import threading
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchWindowException
 from selenium.webdriver.common.keys import Keys
-import os
-import threading
+
+
+SPELL_CONTENT_SELECTOR = '.current .spell-content, .spell-content'
+INPUT_SELECTOR = 'input[name="input_answer"]'
+
 
 def get_screen_text(driver):
     try:
         wait = WebDriverWait(driver, 10)
         target_element = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, '.current .spell-content'))
+            EC.presence_of_element_located((By.CSS_SELECTOR, SPELL_CONTENT_SELECTOR))
         )
         return target_element.text
     except TimeoutException:
-        print("시간 초과: 문제 텍스트 요소를 찾을 수 없습니다.")
         return None
     except NoSuchWindowException:
-        print("오류: 브라우저 창이 닫혔습니다.")
         return None
-    except Exception as e:
-        print(f"텍스트 읽기 오류: {e}")
+    except Exception:
         return None
+
 
 def create_answer_dict():
     try:
         json_path = os.path.join(os.getcwd(), 'data.json')
-        
         with open(json_path, 'r', encoding='utf-8') as file:
             card_list = json.load(file)
-        
         answer_dict = {item['back']: item['front'] for item in card_list}
         print(f"정답 딕셔너리 생성 완료! 총 {len(answer_dict)}개의 단어가 로드되었습니다.")
         return answer_dict
     except FileNotFoundError:
-        print(f"오류: {json_path} 에서 data.json 파일을 찾을 수 없습니다.")
+        print(f"오류: data.json 파일을 찾을 수 없습니다.")
         return None
     except json.JSONDecodeError:
-        print("JSON 데이터 형식이 잘못되었습니다. 복사한 데이터를 확인해주세요.")
+        print("JSON 데이터 형식이 잘못되었습니다.")
         return None
 
+
+def check_step2_success_and_stop(driver, stop_event):
+    """`#study_end.active` 가 있으면 학습 종료로 간주. set 페이지로 복귀 후 stop."""
+    try:
+        done = driver.execute_script(
+            'return document.querySelectorAll("#study_end.active").length > 0;'
+        )
+        if not done:
+            return False
+        driver.execute_script(
+            'var a = document.querySelectorAll("#study_end.active .study-header a"); if (a.length) a[0].click();'
+        )
+        driver.execute_script(
+            'var a = document.querySelectorAll(".btn-top-menu a"); if (a.length) a[0].click();'
+        )
+        time.sleep(0.5)
+        driver.execute_script(
+            'var a = document.querySelectorAll(".close_o"); if (a.length) a[0].click();'
+        )
+        stop_event.set()
+        return True
+    except NoSuchWindowException:
+        raise
+    except Exception:
+        return False
+
+
 def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
-    print("\n[ctrl + X] 자동화를 시작합니다. (종료하려면 'ctrl + E' 키)")
-    print("---------------------------------------------------------")
-    
+    print("[스펠] 시작")
+
     try:
         while not stop_event.is_set():
-            
             text = get_screen_text(driver)
             if text is None:
-                if stop_event.wait(timeout=1.0): break
+                if check_step2_success_and_stop(driver, stop_event):
+                    break
+                if stop_event.wait(timeout=0.5):
+                    break
                 continue
 
             found_key = None
+            text_norm = ''.join(text.split())
             for key in answer_dict.keys():
-                if ''.join(text.split()) == ''.join(key.split()):
+                if text_norm == ''.join(key.split()):
                     found_key = key
                     break
-            
-            if found_key:
-                answer = answer_dict[found_key]
-                try:
-                    input_el = driver.find_element(By.CSS_SELECTOR, '.current input')
-                    input_el.clear()
-                    input_el.send_keys(answer)
-                    if stop_event.wait(timeout=0.1): break
-                    input_el.send_keys(Keys.RETURN)
-                except Exception as e:
-                    print(f"입력 오류: {e}")
-                    if stop_event.wait(timeout=0.1): break
-                    continue
 
-                if stop_event.wait(timeout=1.5): break
-                driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
-                if stop_event.wait(timeout=1.0): break
-            else:
-                print(f"2. 딕셔너리에서 '{text}'에 대한 정답을 찾지 못했습니다.")
-                if stop_event.wait(timeout=2.5): break
+            if not found_key:
+                print(f"[스펠] 매칭 실패: {text!r}")
+                if stop_event.wait(timeout=1.0):
+                    break
+                continue
+
+            answer = answer_dict[found_key]
+            try:
+                input_el = driver.find_element(By.CSS_SELECTOR, INPUT_SELECTOR)
+                input_el.clear()
+                input_el.send_keys(answer)
+                if stop_event.wait(timeout=0.1):
+                    break
+                input_el.send_keys(Keys.RETURN)
+            except Exception as e:
+                print(f"[스펠] 입력 오류: {e}")
+                if stop_event.wait(timeout=0.2):
+                    break
+                continue
+
+            if stop_event.wait(timeout=1.0):
+                break
+            driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
+            if stop_event.wait(timeout=0.7):
+                break
+
+            if check_step2_success_and_stop(driver, stop_event):
+                break
 
     except Exception as e:
         if not stop_event.is_set():
-            print(f"\n자동화 루프 중 오류 발생: {e}")
-            if "target window is closed" in str(e) or "invalid session id" in str(e):
-                print("브라우저 창이 닫혀 자동화를 중지합니다.")
-    
+            print(f"[스펠] 오류: {e}")
     finally:
-        if stop_event.is_set():
-            print("\n[ctrl + E] 자동화 중지 신호를 받았습니다. 루프를 종료합니다.")
-        else:
-            print("\n자동화 루프가 종료되었습니다.")
+        print("[스펠] 종료")

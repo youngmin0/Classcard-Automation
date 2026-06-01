@@ -39,10 +39,10 @@ def normalize_unicode(text):
 
 
 def tokenize_loose(text):
-    """tokenize + 하이픈(-, –, —)·끝 구두점(,.!?;:)을 별도 토큰으로 분리."""
+    """tokenize + 하이픈/대시/따옴표·끝 구두점(,.!?;:)을 별도 토큰으로 분리."""
     result = []
     for t in tokenize(text):
-        for piece in re.split(r'([-–—])', t):
+        for piece in re.split(r"([-–—'\"])", t):
             if not piece:
                 continue
             m = re.match(r'^(.+?)([,.!?;:]+)$', piece)
@@ -55,8 +55,8 @@ def tokenize_loose(text):
 
 
 def is_prefix_punct_split(prefix_tokens):
-    """prefix에 단독 구두점/하이픈 토큰이 있으면 화면이 분리해서 표시한 것."""
-    return any(re.fullmatch(r'[,.!?;:\-–—]+', t) for t in prefix_tokens)
+    """prefix에 단독 구두점/하이픈/따옴표 토큰이 있으면 화면이 분리해서 표시한 것."""
+    return any(re.fullmatch(r"[,.!?;:\-–—'\"]+", t) for t in prefix_tokens)
 
 
 def find_subsequence_end(prefix_tokens, sentence_tokens) -> int:
@@ -262,7 +262,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             if len(matches) == 1:
                 sentence = matches[0]
             elif len(matches) > 1:
-                available_tokens = get_available_tokens(driver)
+                available_tokens = [normalize_unicode(t) for t in get_available_tokens(driver)]
                 sentence = find_matching_sentence_fallback(
                     prefix_tokens, available_tokens, working_dict, tokenize_fn
                 )

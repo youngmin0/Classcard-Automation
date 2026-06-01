@@ -219,14 +219,12 @@ def cleanup_on_exit():
         print("\n프로그램 종료... 브라우저를 닫습니다.")
         driver.quit()
 
-def on_esc_release(key):
-    global hotkey_listener
-    if key == keyboard.Key.esc:
-        print("\n[Esc] 키 입력: 프로그램을 종료합니다...")
-        stop_automation()
-        if hotkey_listener:
-            hotkey_listener.stop()
-        return False
+exit_event = threading.Event()
+
+def exit_program():
+    print("\n[Ctrl + Esc] 키 입력: 프로그램을 종료합니다...")
+    stop_automation()
+    exit_event.set()
 
 def html_parse():
     global driver, answer_dict
@@ -257,7 +255,7 @@ if __name__ == "__main__":
         print("   [Ctrl + A] 키 : 전체 자동화 시작 (단어장 목록 페이지에서)")
         print("   [Ctrl + E] 키 : 자동화 멈추기")
         print("   [Ctrl + M] 키 : 단어장 가져오기")
-        print("   [Esc] 키      : 프로그램 전체 종료 (브라우저 닫힘)")
+        print("   [Ctrl + Esc] 키 : 프로그램 전체 종료 (브라우저 닫힘)")
         print("--------------------------------------------------")
 
         hotkey_listener = GlobalHotKeys({
@@ -269,16 +267,12 @@ if __name__ == "__main__":
             '<ctrl>+a': start_automation_all,
             '<ctrl>+e': stop_automation,
             '<ctrl>+m': html_parse,
+            '<ctrl>+<esc>': exit_program,
         })
-        
-        esc_listener = keyboard.Listener(
-            on_release=on_esc_release
-        )
-        
+
         hotkey_listener.start()
-        esc_listener.start()
-        
-        esc_listener.join()
+        exit_event.wait()
+        hotkey_listener.stop()
 
     else:
         print("\n[오류] 정답 파일(data.json) 또는 웹 드라이버 문제로 프로그램을 시작할 수 없습니다.")

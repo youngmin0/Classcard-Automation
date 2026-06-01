@@ -7,11 +7,19 @@ from selenium.common.exceptions import NoSuchWindowException
 
 
 def check_step2_success_and_stop(driver, stop_event):
-    """`#study_end.active` 가 있으면 학습 종료로 간주. set 페이지로 복귀 후 stop."""
+    """완료 종료 판단: `.btn-study-end-repeat` visible / `.next-repeat-percent` >= 100 / `#study_end.active` 중 하나."""
     try:
-        done = driver.execute_script(
-            'return document.querySelectorAll("#study_end.active").length > 0;'
-        )
+        done = driver.execute_script('''
+            var btns = document.querySelectorAll(".btn-study-end-repeat");
+            for (var i = 0; i < btns.length; i++) {
+                if (btns[i].offsetParent !== null) return true;
+            }
+            var ps = document.querySelectorAll(".next-repeat-percent");
+            for (var i = 0; i < ps.length; i++) {
+                if (ps[i].offsetParent !== null && parseInt(ps[i].textContent) >= 100) return true;
+            }
+            return document.querySelectorAll("#study_end.active").length > 0;
+        ''')
         if not done:
             return False
         driver.execute_script(
@@ -32,16 +40,29 @@ def check_step2_success_and_stop(driver, stop_event):
         return False
 
 
+def _wait_with_check(driver, stop_event, total, interval=0.2):
+    """total 초 동안 interval 간격으로 종료 체크하며 대기. 종료 발견 시 True."""
+    elapsed = 0.0
+    while elapsed < total:
+        if stop_event.wait(timeout=min(interval, total - elapsed)):
+            return True
+        elapsed += interval
+        if check_step2_success_and_stop(driver, stop_event):
+            return True
+    return False
+
+
 def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
     print("[암기] 시작")
     try:
         while not stop_event.is_set():
-            driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
-            time.sleep(0.6)
-            ActionChains(driver).key_down(Keys.SHIFT).send_keys(Keys.SPACE).key_up(Keys.SHIFT).perform()
-            time.sleep(1.3)
-
             if check_step2_success_and_stop(driver, stop_event):
+                break
+            driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
+            if _wait_with_check(driver, stop_event, total=0.6):
+                break
+            ActionChains(driver).key_down(Keys.SHIFT).send_keys(Keys.SPACE).key_up(Keys.SHIFT).perform()
+            if _wait_with_check(driver, stop_event, total=1.3):
                 break
 
     except Exception as e:
