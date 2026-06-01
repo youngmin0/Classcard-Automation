@@ -62,11 +62,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
     try:
         while not stop_event.is_set():
             click_answer(driver)
-<<<<<<< HEAD
-            time.sleep(1.3)
-=======
             time.sleep(1.5)
->>>>>>> b730ac895b159783ee14f6a1f9624a2817b798fb
 
             if check_step2_success_and_stop(driver, stop_event):
                 break
