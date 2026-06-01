@@ -108,7 +108,7 @@ python main.py
 | `Ctrl + Q` | **문장 리콜** 자동화 시작 |
 | `Ctrl + M` | **단어장 가져오기** (현재 페이지에서 데이터 추출) |
 | `Ctrl + E` | 현재 자동화 **중지** |
-| `Esc` | 프로그램 **전체 종료** |
+| `Ctrl + Esc` | 프로그램 **전체 종료** (브라우저 닫힘) |
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
