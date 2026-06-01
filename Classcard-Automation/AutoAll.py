@@ -1,4 +1,5 @@
 import threading
+import time
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -274,6 +275,7 @@ def run_full_automation_loop(driver, stop_event: threading.Event):
                 continue
 
             ensure_full_cards_mode(driver, stop_event)
+            time.sleep(0.5)
 
             if stop_event.is_set():
                 break
