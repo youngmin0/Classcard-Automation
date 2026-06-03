@@ -16,10 +16,42 @@ import MemorizeSentence
 import RecallSentence
 import HtmlParser
 import AutoAll
+import Test
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 URL = 'https://www.classcard.net/Login'
+
+# 테스트 '이탈 감지' 우회: 탭/창 포커스를 잃어도 페이지가 항상 '보이고 포커스된' 상태로 보이게 위장.
+# (Page Visibility API 고정 + visibilitychange/blur 이벤트를 캡처 단계에서 차단)
+ANTI_BLUR_JS = r'''
+(function(){
+  try {
+    Object.defineProperty(document, 'hidden', {configurable:true, get:function(){return false;}});
+    Object.defineProperty(document, 'visibilityState', {configurable:true, get:function(){return 'visible';}});
+    Object.defineProperty(document, 'webkitHidden', {configurable:true, get:function(){return false;}});
+    Object.defineProperty(document, 'webkitVisibilityState', {configurable:true, get:function(){return 'visible';}});
+  } catch(e){}
+  try { document.hasFocus = function(){ return true; }; } catch(e){}
+  function blocker(e){
+    var t = e.type;
+    if (t === 'visibilitychange' || t === 'webkitvisibilitychange' ||
+        t === 'mozvisibilitychange' || t === 'msvisibilitychange' || t === 'pagehide') {
+      e.stopImmediatePropagation(); return;
+    }
+    if ((t === 'blur' || t === 'focusout') && (e.target === window || e.target === document)) {
+      e.stopImmediatePropagation();
+    }
+  }
+  var evts = ['visibilitychange','webkitvisibilitychange','mozvisibilitychange',
+              'msvisibilitychange','pagehide','blur','focusout'];
+  evts.forEach(function(ev){
+    window.addEventListener(ev, blocker, true);
+    document.addEventListener(ev, blocker, true);
+  });
+  try { window.onblur = null; } catch(e){}
+})();
+'''
 
 driver = None
 answer_dict = None
@@ -41,6 +73,13 @@ def initialize_browser():
     
     try:
         driver_instance = webdriver.Chrome(options=chrome_options)
+        # 모든 새 문서에 '이탈 감지 우회' 스크립트를 사전 주입 (페이지 스크립트보다 먼저 실행)
+        try:
+            driver_instance.execute_cdp_cmd(
+                'Page.addScriptToEvaluateOnNewDocument', {'source': ANTI_BLUR_JS}
+            )
+        except Exception as e:
+            print(f"[!] 이탈 감지 우회 주입 실패(무시하고 진행): {e}")
         driver_instance.get(URL)
         auto_login(driver_instance)
         return driver_instance
@@ -185,6 +224,22 @@ def start_automation_recall_sentence():
         else:
             print("\n[N] 자동화가 이미 실행 중입니다.")
 
+def start_automation_test():
+    global automation_thread, stop_event, driver, answer_dict
+    if driver is None or answer_dict is None:
+        print("\n[!] 드라이버 또는 정답 딕셔너리가 준비되지 않았습니다.")
+        return
+    with automation_lock:
+        if automation_thread is None or not automation_thread.is_alive():
+            stop_event = threading.Event()
+            automation_thread = threading.Thread(
+                target=Test.run_automation_loop,
+                args=(driver, answer_dict, stop_event)
+            )
+            automation_thread.start()
+        else:
+            print("\n[G] 자동화가 이미 실행 중입니다.")
+
 def start_automation_all():
     global automation_thread, stop_event, driver
     if driver is None:
@@ -252,6 +307,7 @@ if __name__ == "__main__":
         print("   [Ctrl + X] 키 : 스펠 자동화 시작")
         print("   [Ctrl + B] 키 : 문장 암기 자동화 시작")
         print("   [Ctrl + Q] 키 : 문장 리콜 자동화 시작")
+        print("   [Ctrl + Alt + G] 키 : 단어 테스트 자동화 시작")
         print("   [Ctrl + A] 키 : 전체 자동화 시작 (단어장 목록 페이지에서)")
         print("   [Ctrl + E] 키 : 자동화 멈추기")
         print("   [Ctrl + M] 키 : 단어장 가져오기")
@@ -264,6 +320,7 @@ if __name__ == "__main__":
             '<ctrl>+i': start_automation_memorize,
             '<ctrl>+b': start_automation_memorize_sentence,
             '<ctrl>+q': start_automation_recall_sentence,
+            '<ctrl>+<alt>+g': start_automation_test,
             '<ctrl>+a': start_automation_all,
             '<ctrl>+e': stop_automation,
             '<ctrl>+m': html_parse,

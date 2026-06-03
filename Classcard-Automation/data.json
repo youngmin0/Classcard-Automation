@@ -1,74 +1,130 @@
 [
   {
-    "front": "take after",
-    "back": "닮다, ~처럼 보이다/행동하다"
+    "front": "push oneself to one's limit",
+    "back": "자신을 한계까지 밀어붙이다, 극한까지 노력하다"
   },
   {
-    "front": "take apart",
-    "back": "분리하다, 해체하다, 패배시키다, 혹평하다"
+    "front": "cliff",
+    "back": "[명] 절벽"
   },
   {
-    "front": "take away",
-    "back": "옮겨서 다른 곳에 놓다, 데려가다"
+    "front": "pain",
+    "back": "[명] 통증, 고통"
   },
   {
-    "front": "take back",
-    "back": "(한 말을) 취소하다, 잘못했다고 인정하다"
+    "front": "determination",
+    "back": "[명] 결심, 투지, 결정"
   },
   {
-    "front": "take down",
-    "back": "1. 내리다 2. 데리고 내려가다 3. 뜯어내리다, 분해하다"
+    "front": "take a risk",
+    "back": "위험을 감수하다, 모험을 하다"
   },
   {
-    "front": "take off",
-    "back": "1. 벗다 2. 이륙하다, 성공하게 되다(←뜨다) 3. 휴가를 내다"
+    "front": "extreme",
+    "back": "[형] 극단적인, 극심한, 과격한, 최고의"
   },
   {
-    "front": "take on",
-    "back": "1. 떠맡다, 받아들이다 2. (모습을) 보이다. 띠다, 변하다 3. 대결하다, 맞붙다"
+    "front": "opponent",
+    "back": "[명] 상대, 반대자"
   },
   {
-    "front": "take out",
-    "back": "1. 데리고 나가다 2. 빌리다"
+    "front": "elite",
+    "back": "[형] 고급의, 우수한\r\n[명] 엘리트, 정예"
   },
   {
-    "front": "take over",
-    "back": "통제권/책임을 맡다, 인수하다"
+    "front": "mixed",
+    "back": "[형] 혼성의, 혼합된, 복합적인, 엇갈린"
   },
   {
-    "front": "take to",
-    "back": "1. 습관/버릇으로서 ~을 시작하다 2. 좋아하다, 친근감이 생기다"
+    "front": "shark",
+    "back": "[명] 상어"
   },
   {
-    "front": "take up",
-    "back": "1. 차지하다, (장소, 시간 등을) 사용하다 2. 시작하다, 관심을 갖다 3. 받아들이다"
+    "front": "jellyfish",
+    "back": "[명] 해파리; 의지가 약한 사람"
   },
   {
-    "front": "talk back",
-    "back": "말대꾸하다, 반항조로 무례하게 대답하다"
+    "front": "obstacle",
+    "back": "[명] 장애물, 방해물, 난관, 어려움"
   },
   {
-    "front": "talk down to",
-    "back": "내려보는 어조로 말하다"
+    "front": "tap into",
+    "back": "활용하다, 끌어내다, 접근하다, 이용하다"
   },
   {
-    "front": "talk into",
-    "back": "~을 하도록 설득하다"
+    "front": "strength",
+    "back": "[명] 힘, 강점"
   },
   {
-    "front": "talk out of",
-    "back": "~하지 않도록 설득하다, ~하는 것을 말리다"
+    "front": "participant",
+    "back": "[명] 참가자"
   },
   {
-    "front": "talk over",
-    "back": "상의하다, ~에 대하여 진지하게 이야기하다"
+    "front": "tough",
+    "back": "[형] 힘든, 강인한, 질긴"
   },
   {
-    "front": "talk through",
-    "back": "끝까지 이야기하다, (의견 일치가 이루어질 때까지) 철저하게 토론하다"
+    "front": "role model",
+    "back": "롤 모델, 모범이 되는 사람"
   },
   {
-    "front": "talk to/with",
-    "back": "~에게 말하다, 의논하다"
+    "front": "inspire",
+    "back": "[동] 영감을 주다, 격려하다"
+  },
+  {
+    "front": "robotics",
+    "back": "[명] 로봇공학"
+  },
+  {
+    "front": "ultimate",
+    "back": "[형] 궁극적인, 최종적인, 최고의"
+  },
+  {
+    "front": "mind",
+    "back": "[명] 지성, 마음, 정신; 주의, 생각"
+  },
+  {
+    "front": "heart",
+    "back": "[명] 심장, 마음, 가슴, 용기, 열정, 끈기, 근성"
+  },
+  {
+    "front": "learn by heart",
+    "back": "암기하다, 속속들이 외우다"
+  },
+  {
+    "front": "demonstrate",
+    "back": "[동] 보여주다, 증명하다, 시위하다, 설명하다, 시연하다"
+  },
+  {
+    "front": "teamwork",
+    "back": "[명] 결속력, 협동, 협업"
+  },
+  {
+    "front": "participate in",
+    "back": "~에 참여하다"
+  },
+  {
+    "front": "remote",
+    "back": "[형] 멀리 떨어진, 원격 조정의\r\n[명] 리모컨"
+  },
+  {
+    "front": "field",
+    "back": "[명] 들판, 경기장, 분야, 현장"
+  },
+  {
+    "front": "struggle",
+    "back": "[명] 투쟁, 분투, 몸부림, 발버둥\r\n[동] 애쓰다, 발버둥치다"
+  },
+  {
+    "front": "bot",
+    "back": "[명] 자동화된 소프트웨어 프로그램 또는 인공지능 캐릭터(robot의 줄임말)"
+  },
+  {
+    "front": "stack",
+    "back": "[동] 쌓아 올리다\r\n[명] 더미"
+  },
+  {
+    "front": "on one's way to",
+    "back": "~으로 가는 길에"
   }
 ]
