@@ -13,6 +13,7 @@ import MemorizeSentence
 import Recall
 import RecallSentence
 import Test
+import TestSentence
 
 
 SET_ITEM_SELECTOR = ".set-item"
@@ -20,7 +21,8 @@ SET_NAME_LINK_SELECTOR = ".set-item a.set-name-a"
 MEMORIZE_BTN_SELECTOR = '.btn-summary[onclick*="/Memorize/"]'
 RECALL_BTN_SELECTOR = '.btn-summary[onclick*="/Recall/"]'
 TEST_BTN_SELECTOR = '.btn-start-speedquiz'
-TEST_PASS_SCORE = 70  # 최고점수가 이 점수 이상이면 테스트 완료로 간주
+TEST_PASS_SCORE = 70  # 단어 테스트: 최고점수가 이 점수 이상이면 완료로 간주
+SENTENCE_TEST_PASS_SCORE = 90  # 문장 테스트: 패스 기준 점수
 TEST_NEXT_BTN_SELECTOR = '.btn-condition-next'  # '다음' 버튼
 TEST_START_BTN_SELECTOR = '.btn-quiz-start'     # '테스트 시작' 버튼
 TEST_OK_BTN_SELECTOR = '.modal-content .btn-ok'  # '응시' / '새로 시작' 확인 버튼
@@ -158,14 +160,14 @@ def is_mode_completed(driver, btn_selector) -> bool:
         return False
 
 
-def is_test_done(driver) -> bool:
-    """테스트 버튼의 '최고점수'가 TEST_PASS_SCORE 이상이면 완료로 간주."""
+def is_test_done(driver, pass_score=TEST_PASS_SCORE) -> bool:
+    """테스트 버튼의 '최고점수'가 pass_score 이상이면 완료로 간주."""
     try:
         btn = driver.find_element(By.CSS_SELECTOR, TEST_BTN_SELECTOR)
         m = re.search(r'(\d+)\s*점', btn.text or '')
         if not m:
             return False
-        return int(m.group(1)) >= TEST_PASS_SCORE
+        return int(m.group(1)) >= pass_score
     except Exception:
         return False
 
@@ -344,10 +346,12 @@ def run_full_automation_loop(driver, stop_event: threading.Event):
             if stop_event.is_set():
                 break
 
+            # 문장 set은 문장 테스트(패스 90점), 단어 set은 단어 테스트(패스 70점)
+            test_pass = SENTENCE_TEST_PASS_SCORE if sentence_mode else TEST_PASS_SCORE
+
             memorize_done = is_mode_completed(driver, MEMORIZE_BTN_SELECTOR)
             recall_done = is_mode_completed(driver, RECALL_BTN_SELECTOR)
-            # 단어 테스트는 단어 set에만 적용 (문장 set은 테스트 대상에서 제외)
-            test_done = True if sentence_mode else is_test_done(driver)
+            test_done = is_test_done(driver, test_pass)
             if memorize_done and recall_done and test_done:
                 print("[전체] 모든 모드 완료 — set 스킵")
                 processed_idx_set.add(target['idx'])
@@ -379,14 +383,16 @@ def run_full_automation_loop(driver, stop_event: threading.Event):
                 ('리콜', RECALL_BTN_SELECTOR,
                  RecallSentence.run_automation_loop if sentence_mode else Recall.run_automation_loop),
             ]
-            if not sentence_mode:
-                mode_steps.append(('테스트', TEST_BTN_SELECTOR, Test.run_automation_loop))
+            mode_steps.append((
+                '테스트', TEST_BTN_SELECTOR,
+                TestSentence.run_automation_loop if sentence_mode else Test.run_automation_loop,
+            ))
 
             for mode_label, btn_selector, mode_fn in mode_steps:
                 if stop_event.is_set():
                     break
 
-                already_done = is_test_done(driver) if mode_label == '테스트' else is_mode_completed(driver, btn_selector)
+                already_done = is_test_done(driver, test_pass) if mode_label == '테스트' else is_mode_completed(driver, btn_selector)
                 if already_done:
                     print(f"[전체] {mode_label} 이미 완료 — 스킵.")
                     continue
