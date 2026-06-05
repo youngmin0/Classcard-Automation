@@ -14,15 +14,20 @@ import Recall
 import RecallSentence
 import Test
 import TestSentence
+import Matching
+import Scramble
 
 
 SET_ITEM_SELECTOR = ".set-item"
 SET_NAME_LINK_SELECTOR = ".set-item a.set-name-a"
 MEMORIZE_BTN_SELECTOR = '.btn-summary[onclick*="/Memorize/"]'
 RECALL_BTN_SELECTOR = '.btn-summary[onclick*="/Recall/"]'
+MATCH_BTN_SELECTOR = '.btn-summary[onclick*="/Match/"]'
 TEST_BTN_SELECTOR = '.btn-start-speedquiz'
 TEST_PASS_SCORE = 70  # 단어 테스트: 최고점수가 이 점수 이상이면 완료로 간주
 SENTENCE_TEST_PASS_SCORE = 90  # 문장 테스트: 패스 기준 점수
+MATCH_PASS_SCORE = 1000  # 매칭(단어): 최고기록이 이 점수 이상이면 완료로 간주 (필수 기준)
+SCRAMBLE_PASS_SCORE = 4000  # 스크램블(문장): 최고기록이 이 점수 이상이면 완료로 간주 (필수 기준)
 TEST_NEXT_BTN_SELECTOR = '.btn-condition-next'  # '다음' 버튼
 TEST_START_BTN_SELECTOR = '.btn-quiz-start'     # '테스트 시작' 버튼
 TEST_OK_BTN_SELECTOR = '.modal-content .btn-ok'  # '응시' / '새로 시작' 확인 버튼
@@ -168,6 +173,18 @@ def is_test_done(driver, pass_score=TEST_PASS_SCORE) -> bool:
         if not m:
             return False
         return int(m.group(1)) >= pass_score
+    except Exception:
+        return False
+
+
+def is_match_done(driver, pass_score=MATCH_PASS_SCORE) -> bool:
+    """매칭 버튼의 '최고기록' 점수가 pass_score 이상이면 완료로 간주."""
+    try:
+        btn = driver.find_element(By.CSS_SELECTOR, MATCH_BTN_SELECTOR)
+        m = re.search(r'([\d,]+)\s*점', btn.text or '')
+        if not m:
+            return False
+        return int(m.group(1).replace(',', '')) >= pass_score
     except Exception:
         return False
 
@@ -352,13 +369,19 @@ def run_full_automation_loop(driver, stop_event: threading.Event):
             memorize_done = is_mode_completed(driver, MEMORIZE_BTN_SELECTOR)
             recall_done = is_mode_completed(driver, RECALL_BTN_SELECTOR)
             test_done = is_test_done(driver, test_pass)
-            if memorize_done and recall_done and test_done:
+            # 문장 set은 스크램블(4000점), 단어 set은 매칭(1000점)
+            if sentence_mode:
+                game_done = is_match_done(driver, SCRAMBLE_PASS_SCORE)
+            else:
+                game_done = is_match_done(driver, MATCH_PASS_SCORE)
+            if memorize_done and recall_done and test_done and game_done:
                 print("[전체] 모든 모드 완료 — set 스킵")
                 processed_idx_set.add(target['idx'])
                 back_to_set_list(timeout=10)
                 continue
-
+            
             ensure_full_cards_mode(driver, stop_event)
+            time.sleep(0.5)
 
             if stop_event.is_set():
                 break
@@ -383,6 +406,11 @@ def run_full_automation_loop(driver, stop_event: threading.Event):
                 ('리콜', RECALL_BTN_SELECTOR,
                  RecallSentence.run_automation_loop if sentence_mode else Recall.run_automation_loop),
             ]
+            # 리콜 다음, 테스트 전: 단어 set은 매칭, 문장 set은 스크램블 (둘 다 /Match/)
+            if sentence_mode:
+                mode_steps.append(('스크램블', MATCH_BTN_SELECTOR, Scramble.run_automation_loop))
+            else:
+                mode_steps.append(('매칭', MATCH_BTN_SELECTOR, Matching.run_automation_loop))
             mode_steps.append((
                 '테스트', TEST_BTN_SELECTOR,
                 TestSentence.run_automation_loop if sentence_mode else Test.run_automation_loop,
@@ -392,7 +420,14 @@ def run_full_automation_loop(driver, stop_event: threading.Event):
                 if stop_event.is_set():
                     break
 
-                already_done = is_test_done(driver, test_pass) if mode_label == '테스트' else is_mode_completed(driver, btn_selector)
+                if mode_label == '테스트':
+                    already_done = is_test_done(driver, test_pass)
+                elif mode_label == '매칭':
+                    already_done = is_match_done(driver, MATCH_PASS_SCORE)
+                elif mode_label == '스크램블':
+                    already_done = is_match_done(driver, SCRAMBLE_PASS_SCORE)
+                else:
+                    already_done = is_mode_completed(driver, btn_selector)
                 if already_done:
                     print(f"[전체] {mode_label} 이미 완료 — 스킵.")
                     continue
@@ -447,7 +482,7 @@ def run_full_automation_loop(driver, stop_event: threading.Event):
                         print("[전체] 테스트 페이지 진입 실패. 스킵.")
                         continue
                 else:
-                    # 암기 / 리콜 모드는 기존처럼 시작 버튼 클릭
+                    # 암기 / 리콜 / 매칭 / 스크램블은 시작 버튼(.btn-opt-start) 클릭
                     if not click_start_learning(driver, stop_event):
                         print(f"[전체] {mode_label} 시작 버튼 클릭 실패. 스킵.")
                         continue

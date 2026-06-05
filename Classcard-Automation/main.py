@@ -18,6 +18,8 @@ import HtmlParser
 import AutoAll
 import Test
 import TestSentence
+import Matching
+import Scramble
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
@@ -257,6 +259,38 @@ def start_automation_test_sentence():
         else:
             print("\n[H] 자동화가 이미 실행 중입니다.")
 
+def start_automation_matching():
+    global automation_thread, stop_event, driver, answer_dict
+    if driver is None or answer_dict is None:
+        print("\n[!] 드라이버 또는 정답 딕셔너리가 준비되지 않았습니다.")
+        return
+    with automation_lock:
+        if automation_thread is None or not automation_thread.is_alive():
+            stop_event = threading.Event()
+            automation_thread = threading.Thread(
+                target=Matching.run_automation_loop,
+                args=(driver, answer_dict, stop_event)
+            )
+            automation_thread.start()
+        else:
+            print("\n[J] 자동화가 이미 실행 중입니다.")
+
+def start_automation_scramble():
+    global automation_thread, stop_event, driver, answer_dict
+    if driver is None or answer_dict is None:
+        print("\n[!] 드라이버 또는 정답 딕셔너리가 준비되지 않았습니다.")
+        return
+    with automation_lock:
+        if automation_thread is None or not automation_thread.is_alive():
+            stop_event = threading.Event()
+            automation_thread = threading.Thread(
+                target=Scramble.run_automation_loop,
+                args=(driver, answer_dict, stop_event)
+            )
+            automation_thread.start()
+        else:
+            print("\n[K] 자동화가 이미 실행 중입니다.")
+
 def start_automation_all():
     global automation_thread, stop_event, driver
     if driver is None:
@@ -326,6 +360,8 @@ if __name__ == "__main__":
         print("   [Ctrl + Q] 키 : 문장 리콜 자동화 시작")
         print("   [Ctrl + Alt + G] 키 : 단어 테스트 자동화 시작")
         print("   [Ctrl + Alt + H] 키 : 문장 테스트 자동화 시작")
+        print("   [Ctrl + Alt + J] 키 : 단어 매칭 자동화 시작")
+        print("   [Ctrl + Alt + K] 키 : 문장 스크램블 자동화 시작")
         print("   [Ctrl + A] 키 : 전체 자동화 시작 (단어장 목록 페이지에서)")
         print("   [Ctrl + E] 키 : 자동화 멈추기")
         print("   [Ctrl + M] 키 : 단어장 가져오기")
@@ -340,6 +376,8 @@ if __name__ == "__main__":
             '<ctrl>+q': start_automation_recall_sentence,
             '<ctrl>+<alt>+g': start_automation_test,
             '<ctrl>+<alt>+h': start_automation_test_sentence,
+            '<ctrl>+<alt>+j': start_automation_matching,
+            '<ctrl>+<alt>+k': start_automation_scramble,
             '<ctrl>+a': start_automation_all,
             '<ctrl>+e': stop_automation,
             '<ctrl>+m': html_parse,
