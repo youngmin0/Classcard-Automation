@@ -76,6 +76,29 @@ def find_subsequence_end(prefix_tokens, sentence_tokens) -> int:
     return -1
 
 
+def get_page_answers(driver):
+    """페이지가 console.log('arr_front', ...)로 출력한 정답을 캡처해둔
+    window.__cc_answers(영어 문장 리스트)를 읽는다. (main.py가 console.log를 후킹)
+    중복 제거하여 반환. 없으면 None."""
+    try:
+        arr = driver.execute_script(
+            "return (window.__cc_answers && window.__cc_answers.length) ? window.__cc_answers : null;"
+        )
+    except NoSuchWindowException:
+        raise
+    except Exception:
+        return None
+    if not arr:
+        return None
+    seen, out = set(), []
+    for s in arr:
+        s = (s or '').strip()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out or None
+
+
 def get_prefix_tokens(driver):
     try:
         input_box = driver.find_element(By.CSS_SELECTOR, ".active .input-box")
@@ -139,6 +162,45 @@ def find_matching_sentence_fallback(prefix_tokens, available_tokens, answer_dict
         if len(matched) == 1:
             return matched[0]
 
+    return None
+
+
+def has_active_input(driver):
+    """현재 풀고 있는 카드의 input-box가 화면에 있는지 (게임 진행 중인지)."""
+    try:
+        return len(driver.find_elements(By.CSS_SELECTOR, ".active .input-box")) > 0
+    except NoSuchWindowException:
+        raise
+    except Exception:
+        return False
+
+
+def _wkey(token):
+    """단어 비교 키: 유니코드 정규화 + 영숫자만 + 소문자."""
+    return re.sub(r'[^a-z0-9]', '', normalize_unicode(token).lower())
+
+
+def find_sentence_by_candidates(available_tokens, sent_dict, tokenize_fn):
+    """빈 prefix(문장 시작): 후보 단어 멀티셋이 어떤 문장의 앞 k개 토큰과 일치하는지로 식별.
+    유일 매칭이면 그 문장, 여러 개여도 첫 단어가 모두 같으면 그 문장 반환. 못 정하면 None."""
+    cand = sorted(filter(None, (_wkey(t) for t in available_tokens)))
+    if not cand:
+        return None
+    k = len(available_tokens)
+    matched = []
+    for s in sent_dict.values():
+        toks = tokenize_fn(s)
+        if len(toks) < k:
+            continue
+        head = sorted(filter(None, (_wkey(t) for t in toks[:k])))
+        if head == cand:
+            matched.append(s)
+    if len(matched) == 1:
+        return matched[0]
+    if len(matched) > 1:
+        firsts = {_wkey(tokenize_fn(s)[0]) for s in matched if tokenize_fn(s)}
+        if len(firsts) == 1:
+            return matched[0]
     return None
 
 
@@ -234,12 +296,60 @@ def click_remaining_tokens(driver, remaining_tokens, stop_event):
 def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
     print("[문장 리콜] 시작")
 
+    # 페이지가 정답을 로그할 때까지 잠깐 대기 (console.log 후킹 캡처)
+    captured_logged = False
+    for _ in range(20):
+        if get_page_answers(driver):
+            print("[문장 리콜] 페이지 정답 캡처 성공 (data.json 불필요)")
+            captured_logged = True
+            break
+        if stop_event.wait(timeout=0.3):
+            return
+    if not captured_logged and not answer_dict:
+        print("[문장 리콜] 정답 소스 없음 (캡처 실패 & data.json 없음). 종료")
+        return
+
     try:
         while not stop_event.is_set():
-            prefix_tokens = get_prefix_tokens(driver)
-            if not prefix_tokens:
+            # 매 카드마다 캡처된 정답 우선, 없으면 data.json 폴백
+            page_answers = get_page_answers(driver)
+            active_dict = ({i: s for i, s in enumerate(page_answers)}
+                           if page_answers else (answer_dict or {}))
+            if not active_dict:
                 if check_step2_success_and_stop(driver, stop_event):
                     break
+                if stop_event.wait(timeout=0.3):
+                    break
+                continue
+
+            prefix_tokens = get_prefix_tokens(driver)
+            if not prefix_tokens:
+                # 카드가 없으면(전환/종료) 종료 체크
+                if not has_active_input(driver):
+                    if check_step2_success_and_stop(driver, stop_event):
+                        break
+                    if stop_event.wait(timeout=0.3):
+                        break
+                    continue
+
+                # 문장 시작(빈 prefix): 후보 단어로 문장을 식별해 처음부터 클릭
+                available_tokens = [normalize_unicode(t) for t in get_available_tokens(driver)]
+                start_fn = (tokenize_loose
+                            if any(re.fullmatch(r"[,.!?;:\-–—'\"]+", t) for t in available_tokens)
+                            else tokenize)
+                normalized_dict = {k: normalize_unicode(v) for k, v in active_dict.items()}
+                start_sentence = (
+                    find_sentence_by_candidates(available_tokens, normalized_dict, start_fn)
+                    or find_sentence_by_candidates(
+                        available_tokens,
+                        {k: strip_parens(v) for k, v in normalized_dict.items()}, start_fn)
+                )
+                if not start_sentence:
+                    if stop_event.wait(timeout=0.3):
+                        break
+                    continue
+
+                click_remaining_tokens(driver, start_fn(start_sentence), stop_event)
                 if stop_event.wait(timeout=0.3):
                     break
                 continue
@@ -247,7 +357,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             prefix_tokens = [normalize_unicode(t) for t in prefix_tokens]
             tokenize_fn = tokenize_loose if is_prefix_punct_split(prefix_tokens) else tokenize
 
-            normalized_dict = {k: normalize_unicode(v) for k, v in answer_dict.items()}
+            normalized_dict = {k: normalize_unicode(v) for k, v in active_dict.items()}
 
             matches = find_matching_sentences(prefix_tokens, normalized_dict, tokenize_fn)
             working_dict = normalized_dict

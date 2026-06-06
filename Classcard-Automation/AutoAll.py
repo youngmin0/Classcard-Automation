@@ -42,6 +42,17 @@ def is_sentence_set(set_name: str) -> bool:
     return set_name.strip().endswith('(예문)')
 
 
+def is_sentence_set_detail(driver) -> bool:
+    """set 상세 페이지에서 문장 set 판별: 매칭/스크램블 버튼 텍스트가
+    '스크램블'이면 문장 set, '매칭'이면 단어 set (둘 다 /Match/ URL).
+    이름의 '(예문)' 접미사보다 확실하다."""
+    try:
+        btn = driver.find_element(By.CSS_SELECTOR, MATCH_BTN_SELECTOR)
+        return '스크램블' in (btn.text or '')
+    except Exception:
+        return False
+
+
 def get_set_name(driver, element) -> str:
     """<a> 태그의 첫 텍스트 노드만 추출 ("18 카드" 같은 span 텍스트 제외)."""
     try:
@@ -62,7 +73,13 @@ def get_set_items(driver):
             try:
                 idx = a.get_attribute('data-idx')
                 name = get_set_name(driver, a)
-                result.append({'element': a, 'idx': idx, 'name': name})
+                # 셋 목록의 아이콘으로 문장/단어 판별 (.set-icon.sentence / .set-icon.word)
+                sentence = bool(driver.execute_script(
+                    "var si = arguments[0].closest('.set-item');"
+                    "return si ? !!si.querySelector('.set-icon.sentence') : false;",
+                    a
+                ))
+                result.append({'element': a, 'idx': idx, 'name': name, 'sentence': sentence})
             except Exception:
                 continue
         return result
@@ -341,8 +358,8 @@ def run_full_automation_loop(driver, stop_event: threading.Event):
                 print("[전체] 모든 set 처리 완료.")
                 break
 
-            sentence_mode = is_sentence_set(target['name'])
-            print(f"\n[전체] [{'문장' if sentence_mode else '단어'}] {target['name']}")
+            # 셋 목록 아이콘(.set-icon.sentence)으로 판별, 폴백으로 이름의 '(예문)'
+            sentence_mode = target.get('sentence', False) or is_sentence_set(target['name'])
 
             try:
                 try:
@@ -362,6 +379,10 @@ def run_full_automation_loop(driver, stop_event: threading.Event):
 
             if stop_event.is_set():
                 break
+
+            # 상세 페이지의 매칭/스크램블 버튼 텍스트로 문장/단어 확정 (이름보다 확실)
+            sentence_mode = sentence_mode or is_sentence_set_detail(driver)
+            print(f"\n[전체] [{'문장' if sentence_mode else '단어'}] {target['name']}")
 
             # 문장 set은 문장 테스트(패스 90점), 단어 set은 단어 테스트(패스 70점)
             test_pass = SENTENCE_TEST_PASS_SCORE if sentence_mode else TEST_PASS_SCORE

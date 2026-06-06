@@ -56,6 +56,33 @@ ANTI_BLUR_JS = r'''
 })();
 '''
 
+# 문장 리콜 정답 캡처: recall_sentence.min.js 는 정답을 console.log('arr_front', ...) 로 출력한다.
+# 페이지 스크립트보다 먼저 console.log 를 후킹해 정답 문장을 window.__cc_answers 에 모은다.
+# (리콜은 완성 정답이 DOM/전역에 없고, 틀린 단어는 그대로 박혀서 brute-force 불가 → 이 방법이 유일하게 안전)
+ANSWER_CAPTURE_JS = r'''
+(function(){
+  try {
+    if (window.__ccAnswerHook) return;
+    window.__ccAnswerHook = true;
+    window.__cc_answers = [];
+    var orig = console.log;
+    console.log = function(){
+      try {
+        if (arguments[0] === 'arr_front') {
+          var s = null;
+          for (var i = 1; i < arguments.length; i++) {
+            if (typeof arguments[i] === 'string' && arguments[i].trim()) { s = arguments[i].trim(); break; }
+          }
+          if (!s && Array.isArray(arguments[1])) s = arguments[1].join(' ');
+          if (s) window.__cc_answers.push(s);
+        }
+      } catch (e) {}
+      return orig.apply(console, arguments);
+    };
+  } catch (e) {}
+})();
+'''
+
 driver = None
 answer_dict = None
 automation_thread = None
@@ -76,13 +103,17 @@ def initialize_browser():
     
     try:
         driver_instance = webdriver.Chrome(options=chrome_options)
-        # 모든 새 문서에 '이탈 감지 우회' 스크립트를 사전 주입 (페이지 스크립트보다 먼저 실행)
+        # 모든 새 문서에 '이탈 감지 우회' + '리콜 정답 캡처' 스크립트를 사전 주입
+        # (페이지 스크립트보다 먼저 실행되어야 함)
         try:
             driver_instance.execute_cdp_cmd(
                 'Page.addScriptToEvaluateOnNewDocument', {'source': ANTI_BLUR_JS}
             )
+            driver_instance.execute_cdp_cmd(
+                'Page.addScriptToEvaluateOnNewDocument', {'source': ANSWER_CAPTURE_JS}
+            )
         except Exception as e:
-            print(f"[!] 이탈 감지 우회 주입 실패(무시하고 진행): {e}")
+            print(f"[!] 사전 주입 실패(무시하고 진행): {e}")
         driver_instance.get(URL)
         auto_login(driver_instance)
         return driver_instance

@@ -15,8 +15,8 @@ DEBUG = False
 
 # 필수 학습(1000점)을 채우되 끝까지 가지 않도록, 이 범위 안에서 목표 점수를 정해
 # 도달하면 게임 도중에 '매칭종료'로 빠져나간다 (점수는 저장됨).
-EXIT_SCORE_MIN = 1000
-EXIT_SCORE_MAX = 2000
+EXIT_SCORE_MIN = 3000
+EXIT_SCORE_MAX = 5000
 
 # 매칭 보드 셀렉터
 LEFT_CARD_SELECTOR = '.match-body.left .flip-card'    # 영어

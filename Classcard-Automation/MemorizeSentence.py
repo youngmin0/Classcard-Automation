@@ -26,6 +26,22 @@ def get_korean_sentence(driver):
         return None
 
 
+def get_active_english(driver):
+    """현재 카드의 영어 정답 문장을 DOM에서 직접 읽는다 (data.json 불필요).
+    같은 .CardItem.active 안 step s1의 .text 에 정답 영어 문장이 들어있다."""
+    try:
+        return driver.execute_script(r'''
+            var card = document.querySelector('.CardItem.active');
+            if (!card) return null;
+            var t = card.querySelector('.step.s1 .front .text') || card.querySelector('.text');
+            return t ? (t.textContent || '').trim() : null;
+        ''')
+    except NoSuchWindowException:
+        raise
+    except Exception:
+        return None
+
+
 def parse_english_words(front_sentence):
     """영어 문장을 raw 토큰으로 분리 (괄호 묶음은 통째). 클릭 매칭은 click_scramble_word가 담당."""
     return re.findall(r'\([^)]*\)|\S+', front_sentence)
@@ -126,41 +142,50 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
             if stop_event.wait(timeout=0.3):
                 break
+            driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
+            if stop_event.wait(timeout=0.3):
+                break
 
-            korean_text = get_korean_sentence(driver)
-            if korean_text is None:
+            # 1) 정답 영어 문장: DOM에서 직접 읽기 (data.json 불필요)
+            english_sentence = get_active_english(driver)
+
+            # 2) 폴백: DOM에서 못 읽으면 한국어 → data.json 매칭
+            if not english_sentence and answer_dict:
+                korean_text = get_korean_sentence(driver)
+                if korean_text:
+                    normalized_korean = normalize_text(korean_text)
+                    for key in answer_dict:
+                        if normalized_korean == normalize_text(key):
+                            english_sentence = answer_dict[key]
+                            break
+
+            if not english_sentence:
                 if check_step2_success_and_stop(driver, stop_event):
                     break
                 if stop_event.wait(timeout=0.3):
                     break
                 continue
 
-            found_key = None
-            normalized_korean = normalize_text(korean_text)
-            for key in answer_dict:
-                if normalized_korean == normalize_text(key):
-                    found_key = key
-                    break
-
-            if not found_key:
-                print(f"[문장 암기] 매칭 실패: {korean_text!r}")
-                if stop_event.wait(timeout=0.3):
-                    break
-                continue
-
-            english_sentence = answer_dict[found_key]
             words = parse_english_words(english_sentence)
 
             for word in words:
                 if stop_event.is_set():
                     break
-                click_scramble_word(driver, word)
-                if stop_event.wait(timeout=0.2):
+                # 타일이 7개씩 창처럼 보여 아직 안 나타났을 수 있으니 재시도
+                for _ in range(10):
+                    if click_scramble_word(driver, word):
+                        break
+                    if stop_event.wait(timeout=0.2):
+                        break
+                if stop_event.wait(timeout=0.15):
                     break
 
             if stop_event.is_set():
                 break
 
+            
+            if stop_event.wait(timeout=0.3):
+                break
             driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
             if stop_event.wait(timeout=0.3):
                 break
