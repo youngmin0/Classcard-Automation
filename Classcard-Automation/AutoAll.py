@@ -23,8 +23,9 @@ SET_NAME_LINK_SELECTOR = ".set-item a.set-name-a"
 MEMORIZE_BTN_SELECTOR = '.btn-summary[onclick*="/Memorize/"]'
 RECALL_BTN_SELECTOR = '.btn-summary[onclick*="/Recall/"]'
 MATCH_BTN_SELECTOR = '.btn-summary[onclick*="/Match/"]'
+SPELL_BTN_SELECTOR = '.btn-summary[onclick*="/Spell/"]'
 TEST_BTN_SELECTOR = '.btn-start-speedquiz'
-TEST_PASS_SCORE = 70  # 단어 테스트: 최고점수가 이 점수 이상이면 완료로 간주
+TEST_PASS_SCORE = 90  # 단어 테스트: 최고점수가 이 점수 이상이면 완료로 간주
 SENTENCE_TEST_PASS_SCORE = 90  # 문장 테스트: 패스 기준 점수
 MATCH_PASS_SCORE = 1000  # 매칭(단어): 최고기록이 이 점수 이상이면 완료로 간주 (필수 기준)
 SCRAMBLE_PASS_SCORE = 4000  # 스크램블(문장): 최고기록이 이 점수 이상이면 완료로 간주 (필수 기준)
@@ -206,6 +207,16 @@ def is_match_done(driver, pass_score=MATCH_PASS_SCORE) -> bool:
         return False
 
 
+def is_spell_required(driver) -> bool:
+    """스펠 버튼이 선생님 지정 '필수'인지 (class에 required). 자율이면 False."""
+    try:
+        btn = driver.find_element(By.CSS_SELECTOR, SPELL_BTN_SELECTOR)
+        cls = (btn.get_attribute('class') or '')
+        return 'required' in cls.split()
+    except Exception:
+        return False
+
+
 def is_full_cards_mode(driver) -> bool:
     """현재 active 옵션이 '전체 카드 학습'(data-idx=6)인지."""
     try:
@@ -321,6 +332,170 @@ def run_mode_isolated(driver, mode_fn, answer_dict, parent_stop_event):
         mode_stop_event.set()
 
 
+def process_set_detail(driver, sentence_mode, set_name, stop_event):
+    """현재 set 상세(셋홈) 페이지에서 그 set의 전체 모드를 순서대로 수행.
+    셋홈에 이미 진입해 있다고 가정하며, 목록 순회/복귀는 호출자가 담당한다.
+    순서: 암기 → 리콜 → (단어·필수면)스펠 → 매칭/스크램블 → 테스트."""
+    # 문장 set은 문장 테스트(패스 90점), 단어 set은 단어 테스트(패스 70점)
+    test_pass = SENTENCE_TEST_PASS_SCORE if sentence_mode else TEST_PASS_SCORE
+
+    # 스펠은 단어 set + 선생님이 '필수'로 지정한 경우에만 (자율이면 건너뜀)
+    spell_required = (not sentence_mode) and is_spell_required(driver)
+
+    memorize_done = is_mode_completed(driver, MEMORIZE_BTN_SELECTOR)
+    recall_done = is_mode_completed(driver, RECALL_BTN_SELECTOR)
+    test_done = is_test_done(driver, test_pass)
+    # 문장 set은 스크램블(4000점), 단어 set은 매칭(1000점)
+    if sentence_mode:
+        game_done = is_match_done(driver, SCRAMBLE_PASS_SCORE)
+    else:
+        game_done = is_match_done(driver, MATCH_PASS_SCORE)
+    # 스펠: 필수가 아니면 완료로 간주(스킵), 필수면 data-rate로 판단
+    spell_done = (not spell_required) or is_mode_completed(driver, SPELL_BTN_SELECTOR)
+    if memorize_done and recall_done and test_done and game_done and spell_done:
+        print("[전체] 모든 모드 완료 — set 스킵")
+        return
+
+    ensure_full_cards_mode(driver, stop_event)
+    time.sleep(0.5)
+
+    if stop_event.is_set():
+        return
+
+    data = HtmlParser.get_data(driver)
+    if not data:
+        print("[전체] data.json 추출 실패.")
+        return
+
+    answer_dict = Spell.create_answer_dict()
+    if not answer_dict:
+        print("[전체] answer_dict 생성 실패.")
+        return
+
+    mode_steps = [
+        ('암기', MEMORIZE_BTN_SELECTOR,
+         MemorizeSentence.run_automation_loop if sentence_mode else Memorize.run_automation_loop),
+        ('리콜', RECALL_BTN_SELECTOR,
+         RecallSentence.run_automation_loop if sentence_mode else Recall.run_automation_loop),
+    ]
+    # 리콜 다음, 테스트 전: 문장 set은 스크램블, 단어 set은 (필수면)스펠 → 매칭
+    if sentence_mode:
+        mode_steps.append(('스크램블', MATCH_BTN_SELECTOR, Scramble.run_automation_loop))
+    else:
+        if spell_required:
+            mode_steps.append(('스펠', SPELL_BTN_SELECTOR, Spell.run_automation_loop))
+        mode_steps.append(('매칭', MATCH_BTN_SELECTOR, Matching.run_automation_loop))
+    mode_steps.append((
+        '테스트', TEST_BTN_SELECTOR,
+        TestSentence.run_automation_loop if sentence_mode else Test.run_automation_loop,
+    ))
+
+    for mode_label, btn_selector, mode_fn in mode_steps:
+        if stop_event.is_set():
+            break
+
+        if mode_label == '테스트':
+            already_done = is_test_done(driver, test_pass)
+        elif mode_label == '매칭':
+            already_done = is_match_done(driver, MATCH_PASS_SCORE)
+        elif mode_label == '스크램블':
+            already_done = is_match_done(driver, SCRAMBLE_PASS_SCORE)
+        else:
+            already_done = is_mode_completed(driver, btn_selector)
+        if already_done:
+            print(f"[전체] {mode_label} 이미 완료 — 스킵.")
+            continue
+
+        if not click_mode_button(driver, btn_selector):
+            print(f"[전체] {mode_label} 버튼 클릭 실패. 스킵.")
+            continue
+
+        if stop_event.wait(timeout=1.0):
+            break
+
+        # --- 수정된 테스트 모드 진입 흐름 ---
+        if mode_label == '테스트':
+            # 1. '다음' 버튼 클릭 대기 및 실행
+            try:
+                next_btn = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, TEST_NEXT_BTN_SELECTOR))
+                )
+                try:
+                    next_btn.click()
+                except Exception:
+                    driver.execute_script("arguments[0].click();", next_btn)
+                print("[전체] 테스트 '다음' 버튼 클릭 완료")
+            except Exception as e:
+                print(f"[전체] 테스트 '다음' 버튼 클릭 실패: {e}")
+                continue
+
+            if stop_event.wait(timeout=0.8): # 화면 전환 여유 시간
+                break
+
+            # 2. '테스트 시작' 버튼 클릭 대기 및 실행
+            try:
+                start_btn = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, TEST_START_BTN_SELECTOR))
+                )
+                try:
+                    start_btn.click()
+                except Exception:
+                    driver.execute_script("arguments[0].click();", start_btn)
+                print("[전체] '테스트 시작' 버튼 클릭 완료")
+            except Exception as e:
+                print(f"[전체] '테스트 시작' 버튼 클릭 실패: {e}")
+                continue
+
+            # 2.5 '진행 중인 테스트' 확인 모달(응시 → 새로 시작) 처리
+            handle_test_restart_modals(driver, stop_event)
+            if stop_event.is_set():
+                break
+
+            # 3. 최종 플립 카드 페이지(문제 화면) 진입 대기
+            if not wait_for_test_page(driver, timeout=10):
+                print("[전체] 테스트 페이지 진입 실패. 스킵.")
+                continue
+        else:
+            # 암기 / 리콜 / 스펠 / 매칭 / 스크램블은 시작 버튼(.btn-opt-start) 클릭
+            if not click_start_learning(driver, stop_event):
+                print(f"[전체] {mode_label} 시작 버튼 클릭 실패. 스킵.")
+                continue
+        # ------------------------------------
+
+        if stop_event.wait(timeout=1.0):
+            break
+
+        run_mode_isolated(driver, mode_fn, answer_dict, stop_event)
+
+        if stop_event.is_set():
+            break
+
+        if not wait_for_set_detail(driver, timeout=15):
+            print(f"[전체] {mode_label} 후 set 페이지 복귀 실패.")
+            break
+
+
+def run_single_set_loop(driver, stop_event: threading.Event):
+    """현재 열려 있는 set 상세(셋홈) 페이지의 그 set만 전체 모드 수행 후 종료."""
+    print("[한세트] 시작 (Ctrl+E로 중지)")
+    if not wait_for_set_detail(driver, timeout=3):
+        print("[한세트] set 상세(셋홈) 페이지에서 실행하세요.")
+        return
+    try:
+        sentence_mode = is_sentence_set_detail(driver)
+        set_name = (driver.title or '').strip()
+        print(f"\n[한세트] [{'문장' if sentence_mode else '단어'}] {set_name}")
+        process_set_detail(driver, sentence_mode, set_name, stop_event)
+    except NoSuchWindowException:
+        if not stop_event.is_set():
+            print("[한세트] 브라우저 창이 닫혔습니다.")
+    except Exception as e:
+        if not stop_event.is_set():
+            print(f"[한세트] 오류: {e}")
+    finally:
+        print("[한세트] 종료")
+
+
 def run_full_automation_loop(driver, stop_event: threading.Event):
     print("[전체] 시작 (Ctrl+E로 중지)")
 
@@ -384,142 +559,7 @@ def run_full_automation_loop(driver, stop_event: threading.Event):
             sentence_mode = sentence_mode or is_sentence_set_detail(driver)
             print(f"\n[전체] [{'문장' if sentence_mode else '단어'}] {target['name']}")
 
-            # 문장 set은 문장 테스트(패스 90점), 단어 set은 단어 테스트(패스 70점)
-            test_pass = SENTENCE_TEST_PASS_SCORE if sentence_mode else TEST_PASS_SCORE
-
-            memorize_done = is_mode_completed(driver, MEMORIZE_BTN_SELECTOR)
-            recall_done = is_mode_completed(driver, RECALL_BTN_SELECTOR)
-            test_done = is_test_done(driver, test_pass)
-            # 문장 set은 스크램블(4000점), 단어 set은 매칭(1000점)
-            if sentence_mode:
-                game_done = is_match_done(driver, SCRAMBLE_PASS_SCORE)
-            else:
-                game_done = is_match_done(driver, MATCH_PASS_SCORE)
-            if memorize_done and recall_done and test_done and game_done:
-                print("[전체] 모든 모드 완료 — set 스킵")
-                processed_idx_set.add(target['idx'])
-                back_to_set_list(timeout=10)
-                continue
-            
-            ensure_full_cards_mode(driver, stop_event)
-            time.sleep(0.5)
-
-            if stop_event.is_set():
-                break
-
-            data = HtmlParser.get_data(driver)
-            if not data:
-                print("[전체] data.json 추출 실패. 다음 set로 이동.")
-                processed_idx_set.add(target['idx'])
-                back_to_set_list(timeout=5)
-                continue
-
-            answer_dict = Spell.create_answer_dict()
-            if not answer_dict:
-                print("[전체] answer_dict 생성 실패. 다음 set로 이동.")
-                processed_idx_set.add(target['idx'])
-                back_to_set_list(timeout=5)
-                continue
-
-            mode_steps = [
-                ('암기', MEMORIZE_BTN_SELECTOR,
-                 MemorizeSentence.run_automation_loop if sentence_mode else Memorize.run_automation_loop),
-                ('리콜', RECALL_BTN_SELECTOR,
-                 RecallSentence.run_automation_loop if sentence_mode else Recall.run_automation_loop),
-            ]
-            # 리콜 다음, 테스트 전: 단어 set은 매칭, 문장 set은 스크램블 (둘 다 /Match/)
-            if sentence_mode:
-                mode_steps.append(('스크램블', MATCH_BTN_SELECTOR, Scramble.run_automation_loop))
-            else:
-                mode_steps.append(('매칭', MATCH_BTN_SELECTOR, Matching.run_automation_loop))
-            mode_steps.append((
-                '테스트', TEST_BTN_SELECTOR,
-                TestSentence.run_automation_loop if sentence_mode else Test.run_automation_loop,
-            ))
-
-            for mode_label, btn_selector, mode_fn in mode_steps:
-                if stop_event.is_set():
-                    break
-
-                if mode_label == '테스트':
-                    already_done = is_test_done(driver, test_pass)
-                elif mode_label == '매칭':
-                    already_done = is_match_done(driver, MATCH_PASS_SCORE)
-                elif mode_label == '스크램블':
-                    already_done = is_match_done(driver, SCRAMBLE_PASS_SCORE)
-                else:
-                    already_done = is_mode_completed(driver, btn_selector)
-                if already_done:
-                    print(f"[전체] {mode_label} 이미 완료 — 스킵.")
-                    continue
-
-                if not click_mode_button(driver, btn_selector):
-                    print(f"[전체] {mode_label} 버튼 클릭 실패. 스킵.")
-                    continue
-
-                if stop_event.wait(timeout=1.0):
-                    break
-
-                # --- 수정된 테스트 모드 진입 흐름 ---
-                if mode_label == '테스트':
-                    # 1. '다음' 버튼 클릭 대기 및 실행
-                    try:
-                        next_btn = WebDriverWait(driver, 5).until(
-                            EC.element_to_be_clickable((By.CSS_SELECTOR, TEST_NEXT_BTN_SELECTOR))
-                        )
-                        try:
-                            next_btn.click()
-                        except Exception:
-                            driver.execute_script("arguments[0].click();", next_btn)
-                        print("[전체] 테스트 '다음' 버튼 클릭 완료")
-                    except Exception as e:
-                        print(f"[전체] 테스트 '다음' 버튼 클릭 실패: {e}")
-                        continue
-
-                    if stop_event.wait(timeout=0.8): # 화면 전환 여유 시간
-                        break
-
-                    # 2. '테스트 시작' 버튼 클릭 대기 및 실행
-                    try:
-                        start_btn = WebDriverWait(driver, 5).until(
-                            EC.element_to_be_clickable((By.CSS_SELECTOR, TEST_START_BTN_SELECTOR))
-                        )
-                        try:
-                            start_btn.click()
-                        except Exception:
-                            driver.execute_script("arguments[0].click();", start_btn)
-                        print("[전체] '테스트 시작' 버튼 클릭 완료")
-                    except Exception as e:
-                        print(f"[전체] '테스트 시작' 버튼 클릭 실패: {e}")
-                        continue
-
-                    # 2.5 '진행 중인 테스트' 확인 모달(응시 → 새로 시작) 처리
-                    handle_test_restart_modals(driver, stop_event)
-                    if stop_event.is_set():
-                        break
-
-                    # 3. 최종 플립 카드 페이지(문제 화면) 진입 대기
-                    if not wait_for_test_page(driver, timeout=10):
-                        print("[전체] 테스트 페이지 진입 실패. 스킵.")
-                        continue
-                else:
-                    # 암기 / 리콜 / 매칭 / 스크램블은 시작 버튼(.btn-opt-start) 클릭
-                    if not click_start_learning(driver, stop_event):
-                        print(f"[전체] {mode_label} 시작 버튼 클릭 실패. 스킵.")
-                        continue
-                # ------------------------------------
-
-                if stop_event.wait(timeout=1.0):
-                    break
-
-                run_mode_isolated(driver, mode_fn, answer_dict, stop_event)
-
-                if stop_event.is_set():
-                    break
-
-                if not wait_for_set_detail(driver, timeout=15):
-                    print(f"[전체] {mode_label} 후 set 페이지 복귀 실패. 다음 set로 이동.")
-                    break
+            process_set_detail(driver, sentence_mode, target['name'], stop_event)
 
             if stop_event.is_set():
                 break

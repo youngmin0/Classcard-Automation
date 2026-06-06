@@ -338,6 +338,22 @@ def start_automation_all():
         else:
             print("\n[A] 자동화가 이미 실행 중입니다.")
 
+def start_automation_one_set():
+    global automation_thread, stop_event, driver
+    if driver is None:
+        print("\n[!] 드라이버가 준비되지 않았습니다.")
+        return
+    with automation_lock:
+        if automation_thread is None or not automation_thread.is_alive():
+            stop_event = threading.Event()
+            automation_thread = threading.Thread(
+                target=AutoAll.run_single_set_loop,
+                args=(driver, stop_event)
+            )
+            automation_thread.start()
+        else:
+            print("\n[S] 자동화가 이미 실행 중입니다.")
+
 def stop_automation():
     global automation_thread, stop_event
     
@@ -394,6 +410,7 @@ if __name__ == "__main__":
         print("   [Ctrl + Alt + J] 키 : 단어 매칭 자동화 시작")
         print("   [Ctrl + Alt + K] 키 : 문장 스크램블 자동화 시작")
         print("   [Ctrl + A] 키 : 전체 자동화 시작 (단어장 목록 페이지에서)")
+        print("   [Ctrl + Alt + S] 키 : 현재 셋홈 한 세트 전체 자동화 시작")
         print("   [Ctrl + E] 키 : 자동화 멈추기")
         print("   [Ctrl + M] 키 : 단어장 가져오기")
         print("   [Ctrl + Esc] 키 : 프로그램 전체 종료 (브라우저 닫힘)")
@@ -410,6 +427,7 @@ if __name__ == "__main__":
             '<ctrl>+<alt>+j': start_automation_matching,
             '<ctrl>+<alt>+k': start_automation_scramble,
             '<ctrl>+a': start_automation_all,
+            '<ctrl>+<alt>+s': start_automation_one_set,
             '<ctrl>+e': stop_automation,
             '<ctrl>+m': html_parse,
             '<ctrl>+<esc>': exit_program,
