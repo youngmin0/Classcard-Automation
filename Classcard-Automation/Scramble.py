@@ -20,7 +20,7 @@ EXIT_SCORE_MAX = 5000
 # 스크램블(문장 매칭) 보드 셀렉터
 PROMPT_SELECTOR = '.quest-back'                       # 한국어 문제 문장
 PLACED_SELECTOR = '.user-input-body .user-box'        # 지금까지 배치한 단어 (? = 빈칸)
-WORD_SELECTOR = '.suggest-body .word-box'             # 클릭할 후보 단어 타일
+WORD_SELECTOR = '.suggest-body .word-box:not(.clicked)'  # 클릭할 후보 단어 타일 (배치된 .clicked 제외)
 SCORE_SELECTOR = '.txt-total-score'                   # 현재 점수
 
 
@@ -91,6 +91,52 @@ def wnorm(word):
 def _strip_edge_punct(word):
     """양 끝 구두점만 제거 (대소문자/내부 어포스트로피 유지)."""
     return re.sub(r'^[^\w]+|[^\w]+$', '', word or '')
+
+
+def split_target_words(target):
+    """정답 문장을 '단어 끝 문장부호를 항상 떼어낸' 표준형 토큰으로 분리.
+    ClassCard 스크램블은 세트에 따라 문장부호를 단어에 붙이기도 하고('car,'),
+    별도 타일로 떼기도 한다('without' + '.'). 그래서 단어 끝의 문장부호 묶음을
+    항상 별도 토큰으로 떼어 표준형을 만들어 두고, 붙어 있는 타일은 매칭
+    단계(find_next_index)에서 다시 합쳐 처리한다. (내부 어포스트로피는 유지)
+    예) 'without.' -> ['without', '.'],  'car,' -> ['car', ','],  "You'll" -> ["You'll"]"""
+    words = []
+    for w in (target or '').split():
+        m = re.match(r'^(.+?)([^\w]+)$', w)
+        if m:
+            words.append(m.group(1))
+            words.append(m.group(2))
+        else:
+            words.append(w)
+    return words
+
+
+def _mnorm(s):
+    """매칭용 정규화: 유니코드 정규화 + 따옴표/대시 통일 + 공백 제거 + 소문자.
+    (구두점은 유지 — '.' ',' 같은 문장부호 타일을 구별해야 하므로)"""
+    s = unicodedata.normalize('NFKC', s or '')
+    for a, b in (('’', "'"), ('‘', "'"), ('‚', "'"), ('“', '"'), ('”', '"'),
+                 ('–', '-'), ('—', '-'), ('−', '-')):
+        s = s.replace(a, b)
+    return re.sub(r'\s+', '', s).lower()
+
+
+def _align_index(target_words, placed):
+    """배치된 박스(placed)가 표준형 target_words의 어느 인덱스까지 채웠는지 반환.
+    박스 하나가 여러 토큰을 덮을 수 있다('without.' = 'without'+'.', 'car,' = 'car'+',').
+    정렬이 깨지면 None (정답 매칭 오류/화면 전환 중 등)."""
+    ci = 0
+    for p in placed:
+        pn = _mnorm(p)
+        if not pn:
+            continue
+        acc = ''
+        while ci < len(target_words) and acc != pn:
+            acc += _mnorm(target_words[ci])
+            ci += 1
+        if acc != pn:
+            return None
+    return ci
 
 
 def _load_cards(driver):
@@ -173,26 +219,41 @@ def read_state(driver):
 
 def find_next_index(target_words, placed, cands):
     """다음에 클릭할 후보 인덱스를 찾는다.
-    returns (idx, need): idx=클릭할 word-box 인덱스, need=정답 단어.
+    표준형 target_words(문장부호 분리)에 placed를 정렬해 다음 토큰을 정하고,
+    후보 타일이 '단어 단독'이든 '단어+문장부호 합본'이든 모두 매칭한다.
+    returns (idx, need):
       - (None, None): 문장 완성 (다음 문제 대기)
-      - (None, need): 다음 단어를 후보에서 아직 못 찾음 (잠시 후 재시도)"""
-    i = len(placed)
-    if i >= len(target_words):
+      - (None, need): 다음 토큰을 후보에서 아직 못 찾음 (잠시 후 재시도)"""
+    ci = _align_index(target_words, placed)
+    if ci is None:
+        ci = len(placed)  # 정렬 실패 시 보수적 폴백
+    if ci >= len(target_words):
         return None, None
 
-    need = target_words[i]
+    need = target_words[ci]
 
-    # 1) 정확 일치
+    # ci부터: 타일이 가질 수 있는 형태 = 토큰 단독, 또는 단어 + 뒤따르는 문장부호 합본
+    #  예) ['without', '.'] -> {'without', 'without.'},  ['.'] -> {'.'}
+    options = set()
+    acc = ''
+    j = ci
+    while j < len(target_words):
+        acc += target_words[j]
+        n = _mnorm(acc)
+        if n:
+            options.add(n)
+        nxt = target_words[j + 1] if j + 1 < len(target_words) else None
+        if nxt is not None and re.fullmatch(r'[^\w]+', nxt):
+            j += 1   # 다음이 문장부호면 'without.' 합본도 후보로
+            continue
+        break
+
+    # 1) 표준 매칭: 후보 타일이 위 형태 중 하나와 일치 (대소문자/따옴표 무시, 구두점 유지)
     for idx, c in enumerate(cands):
-        if c == need:
+        if _mnorm(c) in options:
             return idx, need
-    # 2) 양 끝 구두점만 제거 (대소문자 유지)
-    ns = _strip_edge_punct(need)
-    if ns:
-        for idx, c in enumerate(cands):
-            if _strip_edge_punct(c) == ns:
-                return idx, need
-    # 3) 완전 정규화 (구두점/대소문자 무시)
+
+    # 2) 폴백: 구두점까지 무시하고 단어만 일치 (need가 단어일 때만; 순수 문장부호는 제외)
     nn = wnorm(need)
     if nn:
         for idx, c in enumerate(cands):
@@ -340,7 +401,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
                     break
                 continue
 
-            target_words = target.split()
+            target_words = split_target_words(target)
             idx, need = find_next_index(target_words, placed, cands)
 
             if idx is None and need is None:

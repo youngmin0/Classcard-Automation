@@ -1,7 +1,6 @@
 import os
 import re
 import json
-import math
 import time
 import random
 import difflib
@@ -18,6 +17,11 @@ GO_RESULT_SELECTOR = 'a.btn-go-result'
 
 # 진단용: True면 문제별 파싱 결과를 터미널에 출력
 DEBUG = False
+
+# 테스트 목표 점수(0~100). 이 점수가 나오도록 일부러 틀릴 문항 수를 자동 계산한다.
+# 예) 90 → 10%만 일부러 틀림, 100 → 다 맞음.
+# (data.json 매칭 실패가 있으면 실제 점수는 이보다 더 낮게 나올 수 있음)
+TARGET_SCORE = 90
 
 # 테스트 '이탈 감지' 우회: 탭/창 포커스를 잃어도 항상 보이는/포커스된 상태로 위장.
 _ANTI_BLUR_JS = r'''
@@ -336,13 +340,14 @@ def _count_total(driver):
 
 
 def _plan_wrong_indices(total):
-    """70점을 반드시 초과하도록 일부러 틀릴 문항 순번(1-based) 집합."""
+    """TARGET_SCORE에 맞춰 일부러 틀릴 문항 순번(1-based) 집합.
+    틀릴 개수 = round(total * (100 - TARGET_SCORE) / 100)."""
     if not total or total <= 0:
         return set()
-    max_wrong = max(0, math.ceil(0.3 * total) - 1)
-    if max_wrong == 0:
+    n_wrong = round(total * (100 - TARGET_SCORE) / 100.0)
+    n_wrong = max(0, min(n_wrong, total))
+    if n_wrong == 0:
         return set()
-    n_wrong = min(max(1, round(0.2 * total)), max_wrong)
     return set(random.sample(range(1, total + 1), n_wrong))
 
 
