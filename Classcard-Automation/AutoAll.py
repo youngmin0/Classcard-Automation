@@ -27,7 +27,7 @@ SPELL_BTN_SELECTOR = '.btn-summary[onclick*="/Spell/"]'
 TEST_BTN_SELECTOR = '.btn-start-speedquiz'
 TEST_PASS_SCORE = 90  # 단어 테스트: 최고점수가 이 점수 이상이면 완료로 간주
 SENTENCE_TEST_PASS_SCORE = 90  # 문장 테스트: 패스 기준 점수
-MATCH_PASS_SCORE = 1000  # 매칭(단어): 최고기록이 이 점수 이상이면 완료로 간주 (필수 기준)
+MATCH_PASS_SCORE = 3000  # 매칭(단어): 최고기록이 이 점수 이상이면 완료로 간주 (필수 기준)
 SCRAMBLE_PASS_SCORE = 4000  # 스크램블(문장): 최고기록이 이 점수 이상이면 완료로 간주 (필수 기준)
 TEST_NEXT_BTN_SELECTOR = '.btn-condition-next'  # '다음' 버튼
 TEST_START_BTN_SELECTOR = '.btn-quiz-start'     # '테스트 시작' 버튼

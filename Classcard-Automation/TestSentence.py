@@ -339,11 +339,11 @@ def _count_total(driver):
 
 
 def _plan_wrong(total):
-    """TARGET_SCORE에 맞춰 일부러 틀릴 문항 순번(1-based) 집합.
-    틀릴 개수 = round(total * (100 - TARGET_SCORE) / 100)."""
+    """TARGET_SCORE 이상이 나오도록 일부러 틀릴 문항 순번(1-based) 집합.
+    틀릴 개수 = floor(total * (100 - TARGET_SCORE) / 100) — 내림이라 점수는 항상 목표 이상."""
     if not total or total <= 0:
         return set()
-    n_wrong = round(total * (100 - TARGET_SCORE) / 100.0)
+    n_wrong = int(total * (100 - TARGET_SCORE) / 100.0)
     n_wrong = max(0, min(n_wrong, total))
     if n_wrong == 0:
         return set()
@@ -459,7 +459,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
     if DEBUG and total:
         print(f"[문장 테스트] 총 {total}문항 / 일부러 틀릴 순번: {sorted(wrong_idx) or '없음'}")
 
-    flipped_qids = set()    # SPACE로 flip 시도한 문제 (중복 방지)
+    flip_attempts = {}      # qid별 SPACE flip 시도 횟수 (씹힘 대비 재시도)
     answered_qids = set()   # 단어 배열 완료한 문제
     answered_count = 0      # 실제로 답한 수 (오답 주입 인덱스)
 
@@ -498,11 +498,13 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
                     break
                 continue
 
-            # 앞면(한글) → SPACE로 flip
+            # 앞면(한글) → SPACE로 flip.
+            # SPACE 입력이 씹힐 수 있어, 뒤집힐 때까지 매 루프 재시도(최대 8회).
             if not flipped:
-                if qid not in flipped_qids:
+                n = flip_attempts.get(qid, 0)
+                if n < 8:
                     _press_space(driver)
-                    flipped_qids.add(qid)
+                    flip_attempts[qid] = n + 1
                 if stop_event.wait(timeout=0.5):
                     break
                 continue
