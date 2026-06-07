@@ -53,17 +53,16 @@ def _wait_with_check(driver, stop_event, total, interval=0.2):
 
 
 def get_card_key(driver):
-    """현재 보이는 카드의 식별자(전환 감지용). 못 읽으면 None → 타이머 방식 폴백."""
+    """현재 보이는 카드의 식별자(전환 감지용). data-idx만 사용한다.
+    (flip 등으로 텍스트가 바뀌어도 같은 카드면 동일해야 하므로 textContent 폴백 금지.)
+    못 읽으면 None → 타이머 방식 폴백."""
     try:
         return driver.execute_script(r'''
             var c = document.querySelector('.CardItem.current')
                  || document.querySelector('.CardItem.active')
                  || document.querySelector('.showing');
             if (!c) return null;
-            return c.getAttribute('data-idx')
-                || c.getAttribute('data-card-idx')
-                || (c.textContent || '').trim().slice(0, 40)
-                || null;
+            return c.getAttribute('data-idx') || c.getAttribute('data-card-idx') || null;
         ''')
     except NoSuchWindowException:
         raise

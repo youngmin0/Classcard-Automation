@@ -293,6 +293,34 @@ def click_remaining_tokens(driver, remaining_tokens, stop_event):
             break
 
 
+def _input_text(driver):
+    """현재 카드 입력창의 전체 텍스트(전환 감지용). 없으면 ''."""
+    try:
+        els = driver.find_elements(By.CSS_SELECTOR, ".active .input-box")
+        return els[0].text.strip() if els else ''
+    except NoSuchWindowException:
+        raise
+    except Exception:
+        return ''
+
+
+def _advance(driver, stop_event, max_tries=6):
+    """문장 완성 후 SPACE로 다음 카드로 넘긴다. 입력창 내용이 바뀔 때까지 재시도(씹힘 대비).
+    한 번에 넘어가면 추가로 누르지 않으므로 카드 건너뛰기 없음."""
+    before = _input_text(driver)
+    for _ in range(max_tries):
+        driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
+        waited = 0.0
+        while waited < 1.0:
+            if stop_event.wait(timeout=0.2):
+                return
+            waited += 0.2
+            if check_step2_success_and_stop(driver, stop_event):
+                return
+            if _input_text(driver) != before:
+                return
+
+
 def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
     print("[문장 리콜] 시작")
 
@@ -352,6 +380,8 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
                 click_remaining_tokens(driver, start_fn(start_sentence), stop_event)
                 if stop_event.wait(timeout=0.3):
                     break
+                # 문장 완성 → 다음 카드로 (SPACE 씹힘 대비 재시도)
+                _advance(driver, stop_event)
                 continue
 
             prefix_tokens = [normalize_unicode(t) for t in prefix_tokens]
@@ -427,9 +457,8 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             if stop_event.is_set():
                 break
 
-            driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
-            if stop_event.wait(timeout=0.7):
-                break
+            # 다음 카드로 (SPACE 씹힘 대비 재시도)
+            _advance(driver, stop_event)
 
             if check_step2_success_and_stop(driver, stop_event):
                 break

@@ -16,7 +16,7 @@
 
   <p align="center">
     클래스카드(Classcard)의 암기, 리콜, 스펠, 테스트 학습을 자동화하는 Python 스크립트입니다.
-    단어장 전체 자동 학습(전체 자동화)도 지원합니다.
+    단어장 전체 자동 학습(전체 자동화)과 여러 계정 동시(병렬) 실행을 지원합니다.
     <br />
     <a href="https://github.com/youngmin0/Classcard-Automation"><strong>GitHub »</strong></a>
     <br />
@@ -33,6 +33,9 @@
 Selenium을 사용하여 웹 브라우저를 제어하고, Pynput을 통해 글로벌 단축키를 지원합니다.
 
 * **자동 로그인**: `.env` 파일의 ID/PW로 자동 로그인
+* **다계정 병렬 실행**: `.env`에 여러 계정을 적으면(쉼표 구분) `python main.py` 한 번으로
+  계정 수만큼 크롬 창이 열려 각각 로그인. 단축키 한 번이면 **모든 계정이 동시에** 같은 자동화를 수행
+  (계정마다 다른 set이어도 각자 자기 단어장으로 동작)
 * **암기(Memorize)**: 단어/문장 암기 자동화
 * **리콜(Recall)**: 단어/문장 리콜 자동화
 * **스펠(Spell)**: `data.json`의 정답 목록을 기반으로 자동으로 정답을 타이핑.
@@ -101,6 +104,11 @@ cp Classcard-Automation/.env.example Classcard-Automation/.env
 CLASSCARD_ID=내_아이디
 CLASSCARD_PW=내_비밀번호
 ```
+여러 계정을 동시에 돌리려면 쉼표(,)로 구분해 적습니다. (ID와 PW의 순서·개수를 맞출 것)
+```
+CLASSCARD_ID=계정1,계정2,계정3
+CLASSCARD_PW=비번1,비번2,비번3
+```
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -112,6 +120,7 @@ cd Classcard-Automation
 python main.py
 ```
 2. Chrome 브라우저가 열리고 자동으로 로그인됩니다. (`.env` 미설정 시 수동 로그인)
+   - 여러 계정을 설정한 경우 계정 수만큼 창이 열리며, 아래 단축키는 **모든 계정에 동시에** 적용됩니다.
 3. 자동화 방식 선택:
    - **개별 모드**: 학습 세트 페이지로 직접 이동한 뒤 `Ctrl + M`으로 단어 추출 → 원하는 모드 단축키 사용
    - **전체 자동화**: 단어장 목록 페이지(여러 set이 보이는 페이지)에서 `Ctrl + A` 한 번. 맨 아래 set부터 위로 순차 처리
@@ -146,6 +155,7 @@ python main.py
 - [x] 문장 테스트 자동화 (Ctrl + Alt + H) + 백그라운드 실행
 - [x] 단어 매칭 자동화 (Ctrl + Alt + J) + 백그라운드 실행
 - [x] 문장 스크램블 자동화 (Ctrl + Alt + K) + 백그라운드 실행
+- [x] 다계정 동시(병렬) 실행
 - [ ] GUI 인터페이스 추가
 
 See the [open issues](https://github.com/youngmin0/Classcard-Automation/issues) for a full list of proposed features (and known issues).
