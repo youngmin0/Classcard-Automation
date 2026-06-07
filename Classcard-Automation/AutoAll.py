@@ -362,12 +362,14 @@ def process_set_detail(driver, sentence_mode, set_name, stop_event):
     if stop_event.is_set():
         return
 
-    data = HtmlParser.get_data(driver)
+    # 공유 data.json을 거치지 않고 이 driver의 현재 set에서 바로 딕셔너리 생성
+    # (다계정 병렬 시 계정 간 단어장 덮어쓰기 방지)
+    data = HtmlParser.get_data(driver, output_path=None)
     if not data:
-        print("[전체] data.json 추출 실패.")
+        print("[전체] 단어장 추출 실패.")
         return
 
-    answer_dict = Spell.create_answer_dict()
+    answer_dict = Spell.dict_from_cards(data)
     if not answer_dict:
         print("[전체] answer_dict 생성 실패.")
         return

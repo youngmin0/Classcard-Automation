@@ -25,6 +25,13 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 URL = 'https://www.classcard.net/Login'
 
+# 다계정 병렬 시 크롬 창 배치 (대략적인 타일링 — 창은 겹쳐도 백그라운드에서 동작함)
+WIN_W = 620
+WIN_H = 760
+WIN_COLS = 3
+WIN_GAP_X = 20
+WIN_GAP_Y = 40
+
 # 테스트 '이탈 감지' 우회: 탭/창 포커스를 잃어도 페이지가 항상 '보이고 포커스된' 상태로 보이게 위장.
 # (Page Visibility API 고정 + visibilitychange/blur 이벤트를 캡처 단계에서 차단)
 ANTI_BLUR_JS = r'''
@@ -83,14 +90,64 @@ ANSWER_CAPTURE_JS = r'''
 })();
 '''
 
-driver = None
-answer_dict = None
-automation_thread = None
-stop_event = None
-automation_lock = threading.Lock()
 
-def initialize_browser():
-    print("웹 드라이버를 설정하고 브라우저를 시작합니다...")
+class Account:
+    """계정 1개 = 크롬 1개. 계정마다 독립된 driver / answer_dict / 자동화 스레드를 가진다."""
+    def __init__(self, user_id, user_pw):
+        self.user_id = user_id
+        self.user_pw = user_pw
+        self.driver = None
+        self.answer_dict = None
+        self.thread = None
+        self.stop_event = None
+        self.lock = threading.Lock()
+
+    @property
+    def tag(self):
+        return f"[{self.user_id}]"
+
+
+accounts = []  # type: list[Account]
+exit_event = threading.Event()
+
+
+def parse_accounts():
+    """.env에서 여러 계정을 읽는다.
+    - CLASSCARD_ID / CLASSCARD_PW 에 쉼표(,)로 여러 개를 적을 수 있다.
+    - 추가로 CLASSCARD_ID_2/PW_2, _3 ... 번호 형식도 인식한다.
+    """
+    pairs = []
+
+    ids = [s.strip() for s in (os.getenv("CLASSCARD_ID") or "").split(",") if s.strip()]
+    pws = [s.strip() for s in (os.getenv("CLASSCARD_PW") or "").split(",") if s.strip()]
+    for uid, upw in zip(ids, pws):
+        pairs.append((uid, upw))
+    if len(ids) != len(pws):
+        print(f"[!] .env CLASSCARD_ID({len(ids)}개)와 CLASSCARD_PW({len(pws)}개) 개수가 다릅니다. "
+              f"맞는 개수({min(len(ids), len(pws))}개)만 사용합니다.")
+
+    n = 2
+    while True:
+        uid = os.getenv(f"CLASSCARD_ID_{n}")
+        upw = os.getenv(f"CLASSCARD_PW_{n}")
+        if not uid or not upw:
+            break
+        pairs.append((uid.strip(), upw.strip()))
+        n += 1
+
+    # 중복 제거(순서 유지)
+    seen = set()
+    result = []
+    for uid, upw in pairs:
+        if uid in seen:
+            continue
+        seen.add(uid)
+        result.append(Account(uid, upw))
+    return result
+
+
+def initialize_browser(account, position_index):
+    print(f"{account.tag} 웹 드라이버를 설정하고 브라우저를 시작합니다...")
     chrome_options = Options()
 
     # ================= 자동화 탐지 우회 ====================================
@@ -100,7 +157,15 @@ def initialize_browser():
     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
     chrome_options.add_argument(f'user-agent={user_agent}')
     # =====================================================================
-    
+
+    # 계정마다 다른 위치/크기로 띄워 한눈에 보이게 배치
+    col = position_index % WIN_COLS
+    row = position_index // WIN_COLS
+    pos_x = col * (WIN_W + WIN_GAP_X)
+    pos_y = row * (WIN_H + WIN_GAP_Y)
+    chrome_options.add_argument(f"--window-size={WIN_W},{WIN_H}")
+    chrome_options.add_argument(f"--window-position={pos_x},{pos_y}")
+
     try:
         driver_instance = webdriver.Chrome(options=chrome_options)
         # 모든 새 문서에 '이탈 감지 우회' + '리콜 정답 캡처' 스크립트를 사전 주입
@@ -113,21 +178,23 @@ def initialize_browser():
                 'Page.addScriptToEvaluateOnNewDocument', {'source': ANSWER_CAPTURE_JS}
             )
         except Exception as e:
-            print(f"[!] 사전 주입 실패(무시하고 진행): {e}")
+            print(f"{account.tag} [!] 사전 주입 실패(무시하고 진행): {e}")
         driver_instance.get(URL)
-        auto_login(driver_instance)
+        account.driver = driver_instance
+        auto_login(account)
         return driver_instance
     except Exception as e:
-        print(f"드라이버 시작 중 오류 발생: {e}")
+        print(f"{account.tag} 드라이버 시작 중 오류 발생: {e}")
         print("ChromeDriver가 설치되어 있고, 버전이 Chrome 브라우저와 맞는지 확인하세요.")
         return None
 
 
-def auto_login(driver_instance):
-    user_id = os.getenv("CLASSCARD_ID")
-    user_pw = os.getenv("CLASSCARD_PW")
+def auto_login(account):
+    driver_instance = account.driver
+    user_id = account.user_id
+    user_pw = account.user_pw
     if not user_id or not user_pw:
-        print("[!] .env 파일에 CLASSCARD_ID / CLASSCARD_PW가 없습니다. 수동 로그인하세요.")
+        print(f"{account.tag} [!] 아이디/비밀번호가 없습니다. 수동 로그인하세요.")
         return
 
     try:
@@ -167,239 +234,140 @@ def auto_login(driver_instance):
             pass
 
         wait.until(EC.url_changes(URL))
-        print(f"[O] 로그인 성공: {user_id}")
+        print(f"{account.tag} [O] 로그인 성공")
 
     except Exception as e:
-        print(f"[!] 자동 로그인 실패: {e}")
-        print("    수동으로 로그인해 주세요.")
+        print(f"{account.tag} [!] 자동 로그인 실패: {e}")
+        print(f"{account.tag}     수동으로 로그인해 주세요.")
 
-def start_automation_spell():
-    global automation_thread, stop_event, driver, answer_dict
-    
-    if driver is None or answer_dict is None:
-        print("\n[!] 드라이버 또는 정답 딕셔너리가 준비되지 않았습니다.")
- 
-        return
-    
-    with automation_lock:
-        if automation_thread is None or not automation_thread.is_alive():
-            stop_event = threading.Event()
-            automation_thread = threading.Thread(
-                target=Spell.run_automation_loop, 
-                args=(driver, answer_dict, stop_event)
-            )
-            automation_thread.start()
-        else:
-            print("\n[X] 자동화가 이미 실행 중입니다.")
 
-def start_automation_recall():
-    global automation_thread, stop_event, driver, answer_dict
-    
-    if driver is None or answer_dict is None:
-        print("\n[!] 드라이버 또는 정답 딕셔너리가 준비되지 않았습니다.")
-        return
-    
-    with automation_lock:
-        if automation_thread is None or not automation_thread.is_alive():
-            stop_event = threading.Event()
-            automation_thread = threading.Thread(
-                target=Recall.run_automation_loop, 
-                args=(driver, answer_dict, stop_event)
-            )
-            automation_thread.start()
-        else:
-            print("\n[Y] 자동화가 이미 실행 중입니다.")
+def ensure_answer_dict(account):
+    """answer_dict가 없으면 현재 페이지에서 단어장을 파싱해 계정 전용 딕셔너리를 만든다."""
+    if account.answer_dict is not None:
+        return account.answer_dict
+    try:
+        data = HtmlParser.get_data(account.driver, output_path=None)
+        account.answer_dict = Spell.dict_from_cards(data)
+    except Exception as e:
+        print(f"{account.tag} 단어장 자동 추출 실패: {e}")
+        account.answer_dict = None
+    return account.answer_dict
 
-def start_automation_memorize():
-    global automation_thread, stop_event, driver, answer_dict
-    if driver is None or answer_dict is None:
-        print("\n[!] 드라이버 또는 정답 딕셔너리가 준비되지 않았습니다.")
-        return
-    with automation_lock:
-        if automation_thread is None or not automation_thread.is_alive():
-            stop_event = threading.Event()
-            automation_thread = threading.Thread(
-                target=Memorize.run_automation_loop, 
-                args=(driver, answer_dict, stop_event)
-            )
-            automation_thread.start()
-        else:
-            print("\n[I] 자동화가 이미 실행 중입니다.")
 
-def start_automation_memorize_sentence():
-    global automation_thread, stop_event, driver, answer_dict
-    if driver is None or answer_dict is None:
-        print("\n[!] 드라이버 또는 정답 딕셔너리가 준비되지 않았습니다.")
+def start_one(account, module_func, needs_dict):
+    """한 계정에서 자동화 스레드를 시작."""
+    if account.driver is None:
         return
-    with automation_lock:
-        if automation_thread is None or not automation_thread.is_alive():
-            stop_event = threading.Event()
-            automation_thread = threading.Thread(
-                target=MemorizeSentence.run_automation_loop,
-                args=(driver, answer_dict, stop_event)
-            )
-            automation_thread.start()
-        else:
-            print("\n[B] 자동화가 이미 실행 중입니다.")
+    with account.lock:
+        if account.thread and account.thread.is_alive():
+            print(f"{account.tag} [X] 자동화가 이미 실행 중입니다.")
+            return
 
-def start_automation_recall_sentence():
-    global automation_thread, stop_event, driver, answer_dict
-    if driver is None or answer_dict is None:
-        print("\n[!] 드라이버 또는 정답 딕셔너리가 준비되지 않았습니다.")
-        return
-    with automation_lock:
-        if automation_thread is None or not automation_thread.is_alive():
-            stop_event = threading.Event()
-            automation_thread = threading.Thread(
-                target=RecallSentence.run_automation_loop,
-                args=(driver, answer_dict, stop_event)
-            )
-            automation_thread.start()
-        else:
-            print("\n[N] 자동화가 이미 실행 중입니다.")
+        if needs_dict:
+            if ensure_answer_dict(account) is None:
+                print(f"{account.tag} [!] 단어장이 없습니다. 학습 페이지로 이동 후 Ctrl+M으로 가져오세요.")
+                return
 
-def start_automation_test():
-    global automation_thread, stop_event, driver, answer_dict
-    if driver is None or answer_dict is None:
-        print("\n[!] 드라이버 또는 정답 딕셔너리가 준비되지 않았습니다.")
-        return
-    with automation_lock:
-        if automation_thread is None or not automation_thread.is_alive():
-            stop_event = threading.Event()
-            automation_thread = threading.Thread(
-                target=Test.run_automation_loop,
-                args=(driver, answer_dict, stop_event)
-            )
-            automation_thread.start()
+        account.stop_event = threading.Event()
+        if needs_dict:
+            args = (account.driver, account.answer_dict, account.stop_event)
         else:
-            print("\n[G] 자동화가 이미 실행 중입니다.")
+            args = (account.driver, account.stop_event)
+        account.thread = threading.Thread(target=module_func, args=args, daemon=True)
+        account.thread.start()
+        print(f"{account.tag} 자동화 시작")
 
-def start_automation_test_sentence():
-    global automation_thread, stop_event, driver, answer_dict
-    if driver is None or answer_dict is None:
-        print("\n[!] 드라이버 또는 정답 딕셔너리가 준비되지 않았습니다.")
-        return
-    with automation_lock:
-        if automation_thread is None or not automation_thread.is_alive():
-            stop_event = threading.Event()
-            automation_thread = threading.Thread(
-                target=TestSentence.run_automation_loop,
-                args=(driver, answer_dict, stop_event)
-            )
-            automation_thread.start()
-        else:
-            print("\n[H] 자동화가 이미 실행 중입니다.")
 
-def start_automation_matching():
-    global automation_thread, stop_event, driver, answer_dict
-    if driver is None or answer_dict is None:
-        print("\n[!] 드라이버 또는 정답 딕셔너리가 준비되지 않았습니다.")
-        return
-    with automation_lock:
-        if automation_thread is None or not automation_thread.is_alive():
-            stop_event = threading.Event()
-            automation_thread = threading.Thread(
-                target=Matching.run_automation_loop,
-                args=(driver, answer_dict, stop_event)
-            )
-            automation_thread.start()
-        else:
-            print("\n[J] 자동화가 이미 실행 중입니다.")
+def make_starter(module_func, needs_dict=True):
+    """단축키 하나로 모든 계정에서 동시에 module_func를 시작하는 핸들러를 만든다."""
+    def starter():
+        for account in accounts:
+            start_one(account, module_func, needs_dict)
+    return starter
 
-def start_automation_scramble():
-    global automation_thread, stop_event, driver, answer_dict
-    if driver is None or answer_dict is None:
-        print("\n[!] 드라이버 또는 정답 딕셔너리가 준비되지 않았습니다.")
-        return
-    with automation_lock:
-        if automation_thread is None or not automation_thread.is_alive():
-            stop_event = threading.Event()
-            automation_thread = threading.Thread(
-                target=Scramble.run_automation_loop,
-                args=(driver, answer_dict, stop_event)
-            )
-            automation_thread.start()
-        else:
-            print("\n[K] 자동화가 이미 실행 중입니다.")
 
-def start_automation_all():
-    global automation_thread, stop_event, driver
-    if driver is None:
-        print("\n[!] 드라이버가 준비되지 않았습니다.")
-        return
-    with automation_lock:
-        if automation_thread is None or not automation_thread.is_alive():
-            stop_event = threading.Event()
-            automation_thread = threading.Thread(
-                target=AutoAll.run_full_automation_loop,
-                args=(driver, stop_event)
-            )
-            automation_thread.start()
-        else:
-            print("\n[A] 자동화가 이미 실행 중입니다.")
+# 모든 계정에 fan-out 되는 시작 핸들러들
+start_automation_spell = make_starter(Spell.run_automation_loop)
+start_automation_recall = make_starter(Recall.run_automation_loop)
+start_automation_memorize = make_starter(Memorize.run_automation_loop)
+start_automation_memorize_sentence = make_starter(MemorizeSentence.run_automation_loop)
+start_automation_recall_sentence = make_starter(RecallSentence.run_automation_loop)
+start_automation_test = make_starter(Test.run_automation_loop)
+start_automation_test_sentence = make_starter(TestSentence.run_automation_loop)
+start_automation_matching = make_starter(Matching.run_automation_loop)
+start_automation_scramble = make_starter(Scramble.run_automation_loop)
+start_automation_all = make_starter(AutoAll.run_full_automation_loop, needs_dict=False)
+start_automation_one_set = make_starter(AutoAll.run_single_set_loop, needs_dict=False)
 
-def start_automation_one_set():
-    global automation_thread, stop_event, driver
-    if driver is None:
-        print("\n[!] 드라이버가 준비되지 않았습니다.")
-        return
-    with automation_lock:
-        if automation_thread is None or not automation_thread.is_alive():
-            stop_event = threading.Event()
-            automation_thread = threading.Thread(
-                target=AutoAll.run_single_set_loop,
-                args=(driver, stop_event)
-            )
-            automation_thread.start()
-        else:
-            print("\n[S] 자동화가 이미 실행 중입니다.")
 
 def stop_automation():
-    global automation_thread, stop_event
-    
-    with automation_lock:
-        if automation_thread and automation_thread.is_alive():
-            if stop_event:
-                print("\n[ctrl + E] 키 입력: 자동화를 중지합니다...")
-                stop_event.set()
-            automation_thread = None 
-        else:
-            print("\n[ctrl + E] 키 입력: 현재 실행 중인 자동화가 없습니다.")
+    print("\n[Ctrl + E] 키 입력: 모든 계정 자동화를 중지합니다...")
+    any_running = False
+    for account in accounts:
+        with account.lock:
+            if account.thread and account.thread.is_alive():
+                any_running = True
+                if account.stop_event:
+                    account.stop_event.set()
+                account.thread = None
+    if not any_running:
+        print("    현재 실행 중인 자동화가 없습니다.")
+
+
+def html_parse():
+    """모든 계정에서 각자의 현재 페이지 단어장을 가져와 계정별 answer_dict 갱신."""
+    print("\n[Ctrl + M] 키 입력: 모든 계정의 단어장을 가져옵니다...")
+    for account in accounts:
+        if account.driver is None:
+            continue
+        try:
+            data = HtmlParser.get_data(account.driver, output_path=None)
+            new_dict = Spell.dict_from_cards(data)
+            if new_dict:
+                account.answer_dict = new_dict
+                print(f"{account.tag} 단어장 갱신 완료 ({len(new_dict)}개)")
+            else:
+                print(f"{account.tag} 단어장 추출 실패 (학습 페이지가 맞는지 확인)")
+        except Exception as e:
+            print(f"{account.tag} 단어장 추출 오류: {e}")
+
 
 def cleanup_on_exit():
-    global driver
-    if driver:
+    for account in accounts:
+        if account.driver:
+            try:
+                account.driver.quit()
+            except Exception:
+                pass
+    if accounts:
         print("\n프로그램 종료... 브라우저를 닫습니다.")
-        driver.quit()
 
-exit_event = threading.Event()
 
 def exit_program():
     print("\n[Ctrl + Esc] 키 입력: 프로그램을 종료합니다...")
     stop_automation()
     exit_event.set()
 
-def html_parse():
-    global driver, answer_dict
-    if driver is None:
-        print("\n[!] 드라이버가 준비되지 않았습니다.")
-        return
-    
-    print("\n[Ctrl + M] 키 입력: HTML 데이터를 추출합니다...")
-    HtmlParser.get_data(driver)
-    answer_dict = Spell.create_answer_dict()
 
 if __name__ == "__main__":
     atexit.register(cleanup_on_exit)
 
-    answer_dict = Spell.create_answer_dict()
-    
-    if answer_dict:
-        driver = initialize_browser()
-    
-    if driver and answer_dict:
-        print("\n--- 클래스카드 스펠 자동화 컨트롤러 ---")
-        print("브라우저가 열렸습니다. 로그인 후 스펠 학습 페이지로 이동하세요.")
+    accounts = parse_accounts()
+
+    if not accounts:
+        print("[오류] .env에 계정이 없습니다. CLASSCARD_ID / CLASSCARD_PW를 설정하세요.")
+        print('       예) CLASSCARD_ID=acc1,acc2   CLASSCARD_PW=pw1,pw2')
+    else:
+        print(f"총 {len(accounts)}개 계정으로 시작합니다: {', '.join(a.user_id for a in accounts)}")
+        for i, account in enumerate(accounts):
+            initialize_browser(account, i)
+
+    launched = [a for a in accounts if a.driver is not None]
+
+    if launched:
+        print("\n--- 클래스카드 다계정 병렬 자동화 컨트롤러 ---")
+        print(f"브라우저 {len(launched)}개가 열렸습니다. 각 계정 창에서 학습 페이지로 이동하세요.")
+        print("단축키 한 번이면 '모든 계정'에서 동시에 동작합니다.")
         print("\n   [Ctrl + I] 키 : 암기 자동화 시작")
         print("   [Ctrl + Y] 키 : 리콜 자동화 시작")
         print("   [Ctrl + X] 키 : 스펠 자동화 시작")
@@ -411,8 +379,8 @@ if __name__ == "__main__":
         print("   [Ctrl + Alt + K] 키 : 문장 스크램블 자동화 시작")
         print("   [Ctrl + A] 키 : 전체 자동화 시작 (단어장 목록 페이지에서)")
         print("   [Ctrl + Alt + S] 키 : 현재 셋홈 한 세트 전체 자동화 시작")
-        print("   [Ctrl + E] 키 : 자동화 멈추기")
-        print("   [Ctrl + M] 키 : 단어장 가져오기")
+        print("   [Ctrl + E] 키 : 자동화 멈추기 (전체 계정)")
+        print("   [Ctrl + M] 키 : 단어장 가져오기 (전체 계정)")
         print("   [Ctrl + Esc] 키 : 프로그램 전체 종료 (브라우저 닫힘)")
         print("--------------------------------------------------")
 
@@ -438,6 +406,6 @@ if __name__ == "__main__":
         hotkey_listener.stop()
 
     else:
-        print("\n[오류] 정답 파일(data.json) 또는 웹 드라이버 문제로 프로그램을 시작할 수 없습니다.")
+        print("\n[오류] 웹 드라이버 문제로 프로그램을 시작할 수 없습니다.")
 
     print("프로그램이 종료되었습니다.")

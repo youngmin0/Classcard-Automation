@@ -74,21 +74,34 @@ def mnorm(text):
     return _NON_MATCH.sub('', text)
 
 
-def build_lookups():
-    """data.json → 정규화된 양방향 맵.
-    fwd[mnorm(front)] = back(raw),  bwd[mnorm(back)] = front(raw)."""
+def build_lookups(answer_dict=None):
+    """정규화된 양방향 맵 생성. fwd[mnorm(front)] = back(raw), bwd[mnorm(back)] = front(raw).
+    전달받은 answer_dict(={back: front})를 우선 사용하고(다계정 병렬 시 계정별 단어장),
+    없으면 디스크 data.json 폴백."""
+    fwd, bwd = {}, {}
+
+    # 1) 전달받은 answer_dict 우선 (계정/세트별 독립)
+    if answer_dict:
+        for back, front in answer_dict.items():
+            if front:
+                fwd[mnorm(front)] = back
+            if back:
+                bwd[mnorm(back)] = front
+        print(f"[테스트] 매칭 데이터 로드 완료 (단어 {len(answer_dict)}개)")
+        return fwd, bwd
+
+    # 2) 폴백: 디스크 data.json
     try:
         json_path = os.path.join(os.getcwd(), 'data.json')
         with open(json_path, 'r', encoding='utf-8') as f:
             cards = json.load(f)
     except FileNotFoundError:
-        print("[테스트] 오류: data.json 파일을 찾을 수 없습니다.")
+        print("[테스트] 오류: answer_dict도 없고 data.json도 찾을 수 없습니다.")
         return None, None
     except json.JSONDecodeError:
         print("[테스트] 오류: data.json 형식이 잘못되었습니다.")
         return None, None
 
-    fwd, bwd = {}, {}
     for card in cards:
         front = card.get('front', '')
         back = card.get('back', '')
@@ -96,7 +109,7 @@ def build_lookups():
             fwd[mnorm(front)] = back
         if back:
             bwd[mnorm(back)] = front
-    print(f"[테스트] 매칭 데이터 로드 완료 (카드 {len(cards)}개)")
+    print(f"[테스트] data.json 폴백 로드 (카드 {len(cards)}개)")
     return fwd, bwd
 
 
@@ -356,7 +369,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
 
     suppress_leave_detection(driver)  # 백그라운드 실행 시 '이탈 감지' 우회
 
-    fwd, bwd = build_lookups()
+    fwd, bwd = build_lookups(answer_dict)
     if fwd is None:
         print("[테스트] 종료")
         return

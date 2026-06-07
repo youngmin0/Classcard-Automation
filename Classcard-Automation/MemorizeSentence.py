@@ -73,6 +73,52 @@ def check_step2_success_and_stop(driver, stop_event):
         return False
 
 
+def get_card_key(driver):
+    """현재 활성 카드의 식별자(전환 감지용). 못 읽으면 None."""
+    try:
+        return driver.execute_script(r'''
+            var c = document.querySelector('.CardItem.active')
+                 || document.querySelector('.CardItem.current')
+                 || document.querySelector('.showing');
+            if (!c) return null;
+            return c.getAttribute('data-idx')
+                || c.getAttribute('data-card-idx')
+                || (c.textContent || '').trim().slice(0, 40)
+                || null;
+        ''')
+    except NoSuchWindowException:
+        raise
+    except Exception:
+        return None
+
+
+def _scramble_items_present(driver):
+    """현재 카드에 (아직 안 누른) 스크램블 단어 타일이 떠 있는지."""
+    try:
+        return bool(driver.execute_script(
+            "return document.querySelectorAll('.active .scramble-item:not(.clicked)').length > 0;"
+        ))
+    except NoSuchWindowException:
+        raise
+    except Exception:
+        return False
+
+
+def _wait_change_or_stop(driver, stop_event, prev_key, total, interval=0.2):
+    """total초 동안 카드 전환/완료/중지를 감지. 감지 시 True (재시도 종료)."""
+    elapsed = 0.0
+    while elapsed < total:
+        if stop_event.wait(timeout=min(interval, total - elapsed)):
+            return True
+        elapsed += interval
+        if check_step2_success_and_stop(driver, stop_event):
+            return True
+        cur = get_card_key(driver)
+        if cur is not None and cur != prev_key:
+            return True
+    return False
+
+
 def _click_item(driver, item):
     try:
         item.click()
@@ -139,17 +185,34 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
 
     try:
         while not stop_event.is_set():
-            driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
-            if stop_event.wait(timeout=0.3):
-                break
-            driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
-            if stop_event.wait(timeout=0.3):
+            if check_step2_success_and_stop(driver, stop_event):
                 break
 
-            # 1) 정답 영어 문장: DOM에서 직접 읽기 (data.json 불필요)
+            prev = get_card_key(driver)
+
+            # 1) 스크램블 입력칸이 나타날 때까지 SPACE 재시도 (씹힘 대비, 최대 8회)
+            ready = False
+            for _ in range(8):
+                if _scramble_items_present(driver):
+                    ready = True
+                    break
+                driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
+                if stop_event.wait(timeout=0.4):
+                    break
+                if check_step2_success_and_stop(driver, stop_event):
+                    break
+            if stop_event.is_set():
+                break
+            if not ready:
+                # 입력칸이 안 뜨면(전환 중 등) 종료 체크 후 다음 루프
+                if check_step2_success_and_stop(driver, stop_event):
+                    break
+                continue
+
+            # 2) 정답 영어 문장: DOM에서 직접 읽기 (data.json 불필요)
             english_sentence = get_active_english(driver)
 
-            # 2) 폴백: DOM에서 못 읽으면 한국어 → data.json 매칭
+            # 3) 폴백: DOM에서 못 읽으면 한국어 → data.json 매칭
             if not english_sentence and answer_dict:
                 korean_text = get_korean_sentence(driver)
                 if korean_text:
@@ -183,12 +246,17 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             if stop_event.is_set():
                 break
 
-            
             if stop_event.wait(timeout=0.3):
                 break
-            driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
-            if stop_event.wait(timeout=0.3):
-                break
+
+            # 4) 카드가 실제로 넘어갈 때까지 SPACE 재시도 (씹힘 대비, 최대 8회).
+            #    이미 넘어갔으면(자동 전환) SPACE를 더 보내지 않음.
+            for _ in range(8):
+                if get_card_key(driver) != prev:
+                    break
+                driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
+                if _wait_change_or_stop(driver, stop_event, prev, total=0.6):
+                    break
 
             if check_step2_success_and_stop(driver, stop_event):
                 break
