@@ -25,12 +25,15 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 URL = 'https://www.classcard.net/Login'
 
-# 다계정 병렬 시 크롬 창 배치 (대략적인 타일링 — 창은 겹쳐도 백그라운드에서 동작함)
-WIN_W = 620
-WIN_H = 760
-WIN_COLS = 3
-WIN_GAP_X = 20
-WIN_GAP_Y = 40
+# 다계정 병렬 시 크롬 창 크기/배치.
+# ⚠ 창(뷰포트)이 좁으면 클래스카드가 'page-small' 모바일 레이아웃으로 바뀌어
+#   스크램블 타일을 일부만 보여주는 등 자동화가 깨진다. 그래서 데스크톱 레이아웃이 유지되도록
+#   '충분히 큰' 크기를 강제하고, 창은 계단식으로 살짝 어긋나게 겹쳐 띄운다.
+#   (포커스가 없어도/창이 겹쳐도 백그라운드에서 정상 동작함)
+WIN_W = 1280
+WIN_H = 900
+WIN_CASCADE = 48   # 계정마다 어긋나게 띄울 간격(px)
+WIN_CASCADE_WRAP = 8  # 이 개수마다 위치를 처음으로 되돌림(화면 밖으로 너무 밀리지 않게)
 
 # 테스트 '이탈 감지' 우회: 탭/창 포커스를 잃어도 페이지가 항상 '보이고 포커스된' 상태로 보이게 위장.
 # (Page Visibility API 고정 + visibilitychange/blur 이벤트를 캡처 단계에서 차단)
@@ -158,11 +161,10 @@ def initialize_browser(account, position_index):
     chrome_options.add_argument(f'user-agent={user_agent}')
     # =====================================================================
 
-    # 계정마다 다른 위치/크기로 띄워 한눈에 보이게 배치
-    col = position_index % WIN_COLS
-    row = position_index // WIN_COLS
-    pos_x = col * (WIN_W + WIN_GAP_X)
-    pos_y = row * (WIN_H + WIN_GAP_Y)
+    # 데스크톱 레이아웃 유지를 위해 큰 크기로 띄우고, 계정마다 계단식으로 살짝 겹쳐 배치
+    step = position_index % WIN_CASCADE_WRAP
+    pos_x = step * WIN_CASCADE
+    pos_y = step * WIN_CASCADE
     chrome_options.add_argument(f"--window-size={WIN_W},{WIN_H}")
     chrome_options.add_argument(f"--window-position={pos_x},{pos_y}")
 
