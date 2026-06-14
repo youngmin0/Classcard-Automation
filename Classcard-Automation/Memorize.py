@@ -52,6 +52,44 @@ def _wait_with_check(driver, stop_event, total, interval=0.2):
     return False
 
 
+def get_repeat_percent(driver):
+    """현재 보이는 `.next-repeat-percent` 중 최댓값(int). 못 읽으면 None.
+    1회독이 끝나면 이 값이 100에 도달했다가 0으로 리셋된다(다음 회독 시작)."""
+    try:
+        return driver.execute_script(r'''
+            var ps = document.querySelectorAll(".next-repeat-percent");
+            var max = -1;
+            for (var i = 0; i < ps.length; i++) {
+                if (ps[i].offsetParent === null) continue;
+                var v = parseInt(ps[i].textContent);
+                if (!isNaN(v) && v > max) max = v;
+            }
+            return max < 0 ? null : max;
+        ''')
+    except NoSuchWindowException:
+        raise
+    except Exception:
+        return None
+
+
+def exit_study_to_set(driver, stop_event):
+    """종료 버튼(2회독 후에야 뜸) 없이 학습 화면을 빠져나가 set 홈으로 복귀.
+    1회독 완료 시점에 중도 종료하기 위해 사용."""
+    try:
+        driver.execute_script(
+            'var a = document.querySelectorAll(".btn-top-menu a"); if (a.length) a[0].click();'
+        )
+        time.sleep(0.5)
+        driver.execute_script(
+            'var a = document.querySelectorAll(".close_o"); if (a.length) a[0].click();'
+        )
+    except NoSuchWindowException:
+        raise
+    except Exception:
+        pass
+    stop_event.set()
+
+
 def get_card_key(driver):
     """현재 보이는 카드의 식별자(전환 감지용). data-idx만 사용한다.
     (flip 등으로 텍스트가 바뀌어도 같은 카드면 동일해야 하므로 textContent 폴백 금지.)
