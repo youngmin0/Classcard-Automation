@@ -1,4 +1,5 @@
-selenium
-pynput
-python-dotenv
-beautifulsoup4
+selenium>=4.36.0
+pynput>=1.8.1
+python-dotenv>=1.1.1
+beautifulsoup4>=4.13.4
+PySide6>=6.7.0

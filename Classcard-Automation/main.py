@@ -1,14 +1,26 @@
 import os
+import sys
 import threading
 from dotenv import load_dotenv
-from pynput import keyboard
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from pynput.keyboard import GlobalHotKeys
 from selenium.webdriver.chrome.options import Options
 import atexit
+
+# pynput은 X 서버(리눅스)나 접근성 권한(macOS)이 없으면 import 자체가 실패한다.
+# 전역 단축키는 '있으면 좋은' 기능이므로, 실패해도 나머지(GUI/자동화)는 그대로 쓸 수 있게 감싼다.
+try:
+    from pynput import keyboard
+    from pynput.keyboard import GlobalHotKeys
+    HOTKEYS_AVAILABLE = True
+    HOTKEY_IMPORT_ERROR = None
+except Exception as _hotkey_err:  # pragma: no cover - 환경 의존
+    keyboard = None
+    GlobalHotKeys = None
+    HOTKEYS_AVAILABLE = False
+    HOTKEY_IMPORT_ERROR = _hotkey_err
 import Spell
 import Recall
 import Memorize
@@ -34,6 +46,15 @@ WIN_W = 1280
 WIN_H = 900
 WIN_CASCADE = 48   # 계정마다 어긋나게 띄울 간격(px)
 WIN_CASCADE_WRAP = 8  # 이 개수마다 위치를 처음으로 되돌림(화면 밖으로 너무 밀리지 않게)
+
+# ── 런타임 옵션 ────────────────────────────────────────────────────────────
+# CLI(main.py 직접 실행)에서는 기본값 그대로 동작하고, GUI(gui.py)에서 '고급 설정'을
+# 바꾸면 이 값들을 덮어써서 브라우저 실행 방식만 조정한다. (기능 자체는 그대로)
+AUTO_LOGIN = True        # .env의 ID/PW로 자동 로그인 시도
+ANTI_BLUR = True         # 백그라운드 실행(이탈 감지 우회) 스크립트 주입
+CASCADE_WINDOWS = True   # 계정마다 창을 계단식으로 어긋나게 배치
+CHROME_BINARY = ""       # 크롬 실행 파일 경로 (비우면 자동 탐색)
+EXTRA_CHROME_ARGS = []   # 추가 크롬 실행 인자
 
 # 테스트 '이탈 감지' 우회: 탭/창 포커스를 잃어도 페이지가 항상 '보이고 포커스된' 상태로 보이게 위장.
 # (Page Visibility API 고정 + visibilitychange/blur 이벤트를 캡처 단계에서 차단)
@@ -162,20 +183,27 @@ def initialize_browser(account, position_index):
     # =====================================================================
 
     # 데스크톱 레이아웃 유지를 위해 큰 크기로 띄우고, 계정마다 계단식으로 살짝 겹쳐 배치
-    step = position_index % WIN_CASCADE_WRAP
+    step = (position_index % WIN_CASCADE_WRAP) if CASCADE_WINDOWS else 0
     pos_x = step * WIN_CASCADE
     pos_y = step * WIN_CASCADE
     chrome_options.add_argument(f"--window-size={WIN_W},{WIN_H}")
     chrome_options.add_argument(f"--window-position={pos_x},{pos_y}")
+
+    if CHROME_BINARY:
+        chrome_options.binary_location = CHROME_BINARY
+    for arg in EXTRA_CHROME_ARGS:
+        if arg:
+            chrome_options.add_argument(arg)
 
     try:
         driver_instance = webdriver.Chrome(options=chrome_options)
         # 모든 새 문서에 '이탈 감지 우회' + '리콜 정답 캡처' 스크립트를 사전 주입
         # (페이지 스크립트보다 먼저 실행되어야 함)
         try:
-            driver_instance.execute_cdp_cmd(
-                'Page.addScriptToEvaluateOnNewDocument', {'source': ANTI_BLUR_JS}
-            )
+            if ANTI_BLUR:
+                driver_instance.execute_cdp_cmd(
+                    'Page.addScriptToEvaluateOnNewDocument', {'source': ANTI_BLUR_JS}
+                )
             driver_instance.execute_cdp_cmd(
                 'Page.addScriptToEvaluateOnNewDocument', {'source': ANSWER_CAPTURE_JS}
             )
@@ -183,7 +211,10 @@ def initialize_browser(account, position_index):
             print(f"{account.tag} [!] 사전 주입 실패(무시하고 진행): {e}")
         driver_instance.get(URL)
         account.driver = driver_instance
-        auto_login(account)
+        if AUTO_LOGIN:
+            auto_login(account)
+        else:
+            print(f"{account.tag} 자동 로그인이 꺼져 있습니다. 브라우저에서 직접 로그인하세요.")
         return driver_instance
     except Exception as e:
         print(f"{account.tag} 드라이버 시작 중 오류 발생: {e}")
@@ -351,7 +382,17 @@ def exit_program():
     exit_event.set()
 
 
+def run_gui():
+    """GUI(gui.py)를 실행한다. `python main.py --gui` 로도 열 수 있다."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import gui
+    return gui.main()
+
+
 if __name__ == "__main__":
+    if "--gui" in sys.argv or "-g" in sys.argv:
+        sys.exit(run_gui() or 0)
+
     atexit.register(cleanup_on_exit)
 
     accounts = parse_accounts()
@@ -384,7 +425,13 @@ if __name__ == "__main__":
         print("   [Ctrl + E] 키 : 자동화 멈추기 (전체 계정)")
         print("   [Ctrl + M] 키 : 단어장 가져오기 (전체 계정)")
         print("   [Ctrl + Esc] 키 : 프로그램 전체 종료 (브라우저 닫힘)")
+        print("   (GUI로 실행하려면: python main.py --gui)")
         print("--------------------------------------------------")
+
+        if not HOTKEYS_AVAILABLE:
+            print(f"\n[!] 전역 단축키를 사용할 수 없습니다: {HOTKEY_IMPORT_ERROR}")
+            print("    GUI 버전을 사용하세요:  python main.py --gui")
+            sys.exit(1)  # 브라우저 정리는 atexit(cleanup_on_exit)가 처리
 
         hotkey_listener = GlobalHotKeys({
             '<ctrl>+x': start_automation_spell,
