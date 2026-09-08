@@ -15,8 +15,9 @@
   <h3 align="center">Classcard Automation</h3>
 
   <p align="center">
-    클래스카드(Classcard)의 암기, 리콜, 스펠, 테스트 학습을 자동화하는 Python 스크립트입니다.
-    단어장 전체 자동 학습(전체 자동화)과 여러 계정 동시(병렬) 실행을 지원합니다.
+    클래스카드(Classcard)의 암기, 리콜, 스펠, 테스트 학습을 자동화하는 Python 프로그램입니다.
+    단어장 전체 자동 학습(전체 자동화)과 여러 계정 동시(병렬) 실행을 지원하며,
+    <b>데스크톱 GUI</b>와 기존 <b>단축키(CLI)</b> 두 가지 방식으로 모두 쓸 수 있습니다.
     <br />
     <a href="https://github.com/youngmin0/Classcard-Automation"><strong>GitHub »</strong></a>
     <br />
@@ -30,8 +31,19 @@
 
 이 프로젝트는 클래스카드의 반복적인 학습 과정(암기, 리콜, 스펠, 테스트)을 자동화하여, 학습 시간을 절약하기 위해 개발되었습니다.
 
-Selenium을 사용하여 웹 브라우저를 제어하고, Pynput을 통해 글로벌 단축키를 지원합니다.
+Selenium을 사용하여 웹 브라우저를 제어하고, Pynput을 통해 글로벌 단축키를 지원하며,
+PySide6(Qt)로 만든 GUI에서 계정/모드/옵션을 클릭만으로 조작할 수 있습니다.
 
+<div align="center">
+  <img src="docs/gui-main.png" alt="메인 화면" width="720">
+  <br />
+  <img src="docs/gui-log.png" alt="LOG 화면" width="720">
+</div>
+
+* **GUI(신규)**: 계정 관리, 학습 모드 선택, 고급 설정(자동 로그인·백그라운드 실행·지연시간·예약 실행),
+  실시간 로그(날짜별 저장/불러오기)를 한 화면에서 사용. 기존 단축키도 그대로 동작
+* **회원가입 / 로그인(신규)**: 프로그램을 켜면 로그인 창이 먼저 뜨고, 로그인한 사용자마다
+  클래스카드 계정 목록과 설정이 따로 저장됨. 비밀번호는 PBKDF2 해시로만 보관하며 서버가 필요 없음
 * **자동 로그인**: `.env` 파일의 ID/PW로 자동 로그인
 * **다계정 병렬 실행**: `.env`에 여러 계정을 적으면(쉼표 구분) `python main.py` 한 번으로
   계정 수만큼 크롬 창이 열려 각각 로그인. 단축키 한 번이면 **모든 계정이 동시에** 같은 자동화를 수행
@@ -71,6 +83,7 @@ Selenium을 사용하여 웹 브라우저를 제어하고, Pynput을 통해 글�
 ### Built With
 
 * [![Selenium][Selenium-shield]][Selenium-url]
+* [![PySide6][PySide6-shield]][PySide6-url]
 * [![Pynput][Pynput-shield]][Pynput-url]
 * [![BeautifulSoup][BeautifulSoup-shield]][BeautifulSoup-url]
 
@@ -117,6 +130,58 @@ CLASSCARD_PW=비번1,비번2,비번3
 
 ## Usage
 
+프로그램은 **GUI**와 **CLI(단축키)** 두 가지로 실행할 수 있습니다. 자동화 엔진은 완전히 동일합니다.
+
+### 1) GUI로 실행하기 (권장)
+
+Windows에서는 저장소 폴더의 **`run_gui.bat`을 더블클릭**하면 필요한 라이브러리를 자동으로 설치한 뒤
+GUI가 열립니다. 직접 실행하려면:
+
+```sh
+cd Classcard-Automation
+python gui.py
+# 또는
+python main.py --gui
+```
+
+**회원가입 / 로그인**
+
+<div align="center">
+  <img src="docs/gui-login.png" alt="로그인" width="300">
+  <img src="docs/gui-signup.png" alt="회원가입" width="300">
+</div>
+
+처음 실행하면 **회원가입** 탭이 먼저 열립니다. 아이디(영문·숫자·밑줄 4~20자)와 비밀번호(6자 이상)를
+정하면 바로 로그인되고 메인 화면이 열립니다.
+
+* **자동 로그인**: 체크해 두면 다음 실행부터 로그인 창 없이 바로 시작합니다.
+  (임의 토큰을 `auth_session.json`에 저장하고, DB에는 토큰의 해시만 보관)
+* **로그아웃**: 오른쪽 위 `로그아웃` 버튼 → 자동 로그인이 해제되고 로그인 창으로 돌아갑니다.
+* **비밀번호 변경**: `⚙ 환경설정` → *로그인 계정* 항목에서 현재/새 비밀번호를 입력해 변경합니다.
+* **사용자별 분리**: 로그인한 사용자마다 `profiles/<아이디>/`에 클래스카드 계정 목록(`accounts.json`)과
+  설정(`gui_settings.json`)이 따로 저장됩니다. 처음 로그인할 때 기존 `.env` 계정을 자동으로 물려받습니다.
+* **저장 위치**: 사용자 정보는 이 컴퓨터의 `Classcard-Automation/users.db`(SQLite)에만 저장되며,
+  비밀번호는 PBKDF2-HMAC-SHA256(솔트 + 24만 회 반복) 해시로만 보관합니다. 서버로 아무것도 보내지 않습니다.
+
+> 클래스카드 계정(ID/PW)은 이 로그인과 별개입니다. 클래스카드 계정 비밀번호는 자동화를 위해
+> `accounts.json` / `.env`에 그대로 저장되므로, 공용 PC에서는 사용 후 삭제하세요.
+
+**화면 구성**
+
+| 영역 | 설명 |
+|------|------|
+| **계정 리스트** | 아이디/비밀번호를 입력해 계정 추가, `.env 불러오기`/`계정 저장`, `브라우저 열기/닫기`, 검색, 선택 삭제. 계정 줄을 더블클릭하면 비밀번호를 바꿀 수 있습니다. 체크된 계정만 실행 대상이 됩니다 |
+| **학습 모드** | 전체 자동화 · 한 세트 자동화 · 암기 · 리콜 · 스펠 · 문장 암기 · 문장 리콜 · 단어 테스트 · 문장 테스트 · 단어 매칭 · 문장 스크램블 중 하나 선택 |
+| **고급 설정** | 클래스카드 자동 로그인 / 백그라운드 실행(이탈 감지 우회) / 창 계단식 배치 / 자동화 후 브라우저 유지 / 전역 단축키 사용 / 시작 지연시간 / 계정별 실행 간격 / 크롬 창 크기 / **예약 실행**(지정 시각에 자동 시작) |
+| **실행 상태** | 등록 계정·브라우저·실행 중 개수, 진행 표시, 최근 로그, `단어장 가져오기`, `data.json 저장`, 큰 **자동화 시작/중지** 버튼 |
+| **LOG 탭** | 날짜별 로그 조회(`logs/YYYY-MM-DD.log`), 저장, 지우기 |
+| **⚙ 환경설정** | 크롬 실행 파일 경로, 추가 크롬 인자, 로그인 비밀번호 변경, 로그 폴더 열기 |
+
+설정은 로그인한 사용자의 `profiles/<아이디>/gui_settings.json`에 자동 저장되어 다음 실행 때 그대로 복원됩니다.
+GUI를 켠 상태에서도 아래 **전역 단축키가 그대로 동작**합니다(고급 설정에서 끌 수 있음).
+
+### 2) CLI(단축키)로 실행하기
+
 1. 터미널에서 `main.py`를 실행합니다.
 ```sh
 cd Classcard-Automation
@@ -146,6 +211,20 @@ python main.py
 | `Ctrl + E` | 현재 자동화 **중지** |
 | `Ctrl + Esc` | 프로그램 **전체 종료** (브라우저 닫힘) |
 
+> 리눅스에 X 서버가 없거나 macOS 접근성 권한이 없으면 pynput(전역 단축키)을 쓸 수 없습니다.
+> 이때는 GUI(`python main.py --gui`)로 실행하면 버튼으로 모든 기능을 쓸 수 있습니다.
+
+### 3) 실행 파일(.exe)로 만들기
+
+```sh
+pip install pyinstaller
+pyinstaller --noconfirm --clean classcard_gui.spec
+# -> dist/ClasscardAutomation.exe
+```
+
+`.env`는 실행 파일에 포함되지 않습니다. exe와 같은 폴더에 `.env`를 두거나 GUI에서 계정을 추가한 뒤
+`계정 저장`을 누르세요.
+
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ## Roadmap
@@ -159,7 +238,9 @@ python main.py
 - [x] 단어 매칭 자동화 (Ctrl + Alt + J) + 백그라운드 실행
 - [x] 문장 스크램블 자동화 (Ctrl + Alt + K) + 백그라운드 실행
 - [x] 다계정 동시(병렬) 실행
-- [ ] GUI 인터페이스 추가
+- [x] GUI 인터페이스 추가 (PySide6) — 계정 관리 / 모드 선택 / 고급 설정 / 예약 실행 / LOG 뷰어
+- [x] 회원가입 / 로그인 (로컬 계정, 자동 로그인, 사용자별 프로필 분리)
+- [ ] 세트별 진행률 표시
 
 See the [open issues](https://github.com/youngmin0/Classcard-Automation/issues) for a full list of proposed features (and known issues).
 
@@ -220,6 +301,8 @@ Project Link: [https://github.com/youngmin0/Classcard-Automation](https://github
 [license-url]: https://github.com/youngmin0/Classcard-Automation/blob/master/LICENSE.txt
 [Selenium-shield]: https://img.shields.io/badge/Selenium-43B02A?style=for-the-badge&logo=selenium&logoColor=white
 [Selenium-url]: https://www.selenium.dev/
+[PySide6-shield]: https://img.shields.io/badge/PySide6-41CD52?style=for-the-badge&logo=qt&logoColor=white
+[PySide6-url]: https://doc.qt.io/qtforpython/
 [Pynput-shield]: https://img.shields.io/badge/Pynput-informational?style=for-the-badge&logo=python&logoColor=white
 [Pynput-url]: https://pynput.readthedocs.io/
 [BeautifulSoup-shield]: https://img.shields.io/badge/BeautifulSoup-informational?style=for-the-badge&logo=python&logoColor=white
