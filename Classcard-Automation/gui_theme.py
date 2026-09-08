@@ -58,6 +58,20 @@ def stylesheet() -> str:
 #clockLabel {{ color: {p['text_sub']}; font-size: 11px; }}
 #statusLabel {{ color: {p['text_sub']}; font-size: 11px; }}
 
+#userChip {{
+    background: {p['primary_lt']};
+    color: {p['primary_dk']};
+    border-radius: 10px;
+    padding: 3px 9px;
+    font-size: 11px;
+    font-weight: 700;
+}}
+QPushButton#logoutBtn {{
+    background: transparent; border: 1px solid {p['card_border']};
+    border-radius: 9px; padding: 2px 9px; color: {p['text_sub']}; font-size: 10.5px;
+}}
+QPushButton#logoutBtn:hover {{ background: {p['hover']}; color: {p['danger']}; }}
+
 QPushButton#winBtn {{
     background: transparent; border: none; border-radius: 6px;
     color: {p['text_sub']}; font-size: 13px; padding: 0px;

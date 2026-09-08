@@ -6,6 +6,12 @@ __pycache__/
 logs/
 gui_settings.json
 
+# 로그인 계정 / 사용자 프로필 (로컬 전용)
+users.db
+auth_session.json
+profiles/
+accounts.json
+
 # 빌드 산출물 (PyInstaller)
 build/
 dist/

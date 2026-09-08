@@ -20,7 +20,7 @@ a = Analysis(
     binaries=[],
     datas=[],
     hiddenimports=[
-        "main", "gui_engine", "gui_theme", "gui_widgets",
+        "main", "gui_engine", "gui_theme", "gui_widgets", "gui_login", "auth",
         "AutoAll", "HtmlParser", "Matching", "Memorize", "MemorizeSentence",
         "Recall", "RecallSentence", "Scramble", "Spell", "Test", "TestSentence",
     ],

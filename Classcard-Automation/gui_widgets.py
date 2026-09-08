@@ -200,6 +200,7 @@ class TitleBar(QWidget):
     minimize_requested = Signal()
     maximize_requested = Signal()
     close_requested = Signal()
+    logout_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -233,6 +234,21 @@ class TitleBar(QWidget):
         self.clock.setObjectName("clockLabel")
         lay.addWidget(self.clock)
 
+        # 로그인한 사용자 표시 + 로그아웃
+        lay.addSpacing(10)
+        self.user_chip = QLabel("")
+        self.user_chip.setObjectName("userChip")
+        self.user_chip.hide()
+        lay.addWidget(self.user_chip)
+
+        self.logout_btn = QPushButton("로그아웃")
+        self.logout_btn.setObjectName("logoutBtn")
+        self.logout_btn.setCursor(Qt.PointingHandCursor)
+        self.logout_btn.setFixedHeight(24)
+        self.logout_btn.hide()
+        self.logout_btn.clicked.connect(self.logout_requested.emit)
+        lay.addWidget(self.logout_btn)
+
         self.dot = StatusDot()
         lay.addSpacing(8)
         lay.addWidget(self.dot)
@@ -262,6 +278,16 @@ class TitleBar(QWidget):
     def set_status(self, text, color):
         self.status.setText(text)
         self.dot.set_color(color)
+
+    def set_user(self, name):
+        """로그인한 사용자 이름을 타이틀바에 표시한다. (None이면 숨김)"""
+        if name:
+            self.user_chip.setText(f"👤 {name}")
+            self.user_chip.show()
+            self.logout_btn.show()
+        else:
+            self.user_chip.hide()
+            self.logout_btn.hide()
 
     # 창 드래그 이동
     def mousePressEvent(self, event):

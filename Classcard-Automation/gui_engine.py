@@ -220,6 +220,14 @@ LOG = LogBus()
 # ────────────────────────────────────────────────────────────────────────────
 # 설정
 # ────────────────────────────────────────────────────────────────────────────
+def _read_json(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
 @dataclass
 class Settings:
     auto_login: bool = True
@@ -238,18 +246,21 @@ class Settings:
     selected_mode: str = "all"
 
     @classmethod
-    def load(cls):
-        try:
-            with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            known = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
-            return cls(**known)
-        except Exception:
-            return cls()
+    def load(cls, path=SETTINGS_PATH, fallback=None):
+        """path의 설정을 읽는다. 없으면 fallback(예전 공용 설정)을 한 번 물려받는다."""
+        data = _read_json(path)
+        if data is None and fallback:
+            data = _read_json(fallback)
+        known = {k: v for k, v in (data or {}).items() if k in cls.__dataclass_fields__}
+        settings = cls(**known)
+        settings.path = path
+        return settings
 
-    def save(self):
+    def save(self, path=None):
+        path = path or getattr(self, "path", SETTINGS_PATH)
         try:
-            with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
                 json.dump(asdict(self), f, ensure_ascii=False, indent=2)
             return True
         except Exception as e:
@@ -270,8 +281,19 @@ STATE_ERROR = "오류"
 class Engine:
     """계정 목록과 자동화 스레드를 관리한다. (GUI 프레임워크에 의존하지 않음)"""
 
-    def __init__(self, on_change=None):
-        self.settings = Settings.load()
+    def __init__(self, on_change=None, profile_dir=None, user=None):
+        # 로그인한 사용자마다 설정/계정 목록을 따로 보관한다.
+        # (로그인 없이 쓰던 예전 설정은 profile_dir이 없을 때 그대로 사용)
+        self.user = user
+        self.profile_dir = profile_dir or BASE_DIR
+        try:
+            os.makedirs(self.profile_dir, exist_ok=True)
+        except Exception:
+            self.profile_dir = BASE_DIR
+        self.settings_path = os.path.join(self.profile_dir, "gui_settings.json")
+        self.accounts_path = os.path.join(self.profile_dir, "accounts.json")
+        self.settings = Settings.load(self.settings_path,
+                                      fallback=SETTINGS_PATH if profile_dir else None)
         self.accounts = []
         self._on_change = on_change or (lambda: None)
         self._monitor_stop = threading.Event()
@@ -280,6 +302,40 @@ class Engine:
         # main.py의 전역 리스트와 같은 객체를 공유해서, GUI/단축키 어느 쪽으로 시작하든
         # 같은 계정 목록을 대상으로 동작하게 만든다.
         core.accounts = self.accounts
+
+    # -- 계정 저장소(사용자 프로필) -----------------------------------------
+    def load_profile_accounts(self):
+        """로그인한 사용자의 계정 목록(accounts.json)을 불러온다."""
+        data = _read_json(self.accounts_path)
+        if not isinstance(data, list):
+            return 0
+        added = 0
+        for item in data:
+            if isinstance(item, dict) and self.add_account(item.get("id"), item.get("pw"),
+                                                           silent=True):
+                added += 1
+        if added:
+            LOG.log(f"저장된 계정 {added}개를 불러왔습니다.")
+            self._changed()
+        return added
+
+    def save_profile_accounts(self):
+        try:
+            os.makedirs(os.path.dirname(self.accounts_path) or ".", exist_ok=True)
+            with open(self.accounts_path, "w", encoding="utf-8") as f:
+                json.dump([{"id": a.user_id, "pw": a.user_pw or ""} for a in self.accounts],
+                          f, ensure_ascii=False, indent=2)
+            if os.name == "posix":
+                os.chmod(self.accounts_path, 0o600)
+            return True
+        except Exception as e:
+            LOG.log(f"[!] 계정 목록 저장 실패: {e}")
+            return False
+
+    def set_password(self, account, password):
+        account.user_pw = password or ""
+        self.save_profile_accounts()
+        LOG.log(f"{account.tag} 비밀번호를 변경했습니다.")
 
     # -- 계정 ---------------------------------------------------------------
     def load_env_accounts(self):
@@ -295,6 +351,7 @@ class Engine:
                 added += 1
         if added:
             LOG.log(f".env에서 계정 {added}개를 불러왔습니다.")
+            self.save_profile_accounts()
         else:
             LOG.log(".env에서 새로 불러올 계정이 없습니다.")
         self._changed()
@@ -316,6 +373,7 @@ class Engine:
         self.accounts.append(account)
         if not silent:
             LOG.log(f"계정 추가: {user_id}")
+            self.save_profile_accounts()
             self._changed()
         return True
 
@@ -325,6 +383,7 @@ class Engine:
             if account in self.accounts:
                 self.accounts.remove(account)
                 LOG.log(f"계정 삭제: {account.user_id}")
+        self.save_profile_accounts()
         self._changed()
 
     def save_env(self):

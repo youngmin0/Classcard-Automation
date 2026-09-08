@@ -26,7 +26,9 @@ from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
                                QTimeEdit, QDateEdit, QMessageBox, QFileDialog,
                                QButtonGroup, QDialog, QInputDialog, QProgressBar)
 
+import auth
 import gui_engine as engine_mod
+from gui_login import prompt_login
 from gui_engine import (Engine, LOG, MODES, MODE_BY_KEY, STATE_RUNNING,
                         STATE_READY, STATE_DONE, STATE_ERROR, STATE_IDLE, LOG_DIR)
 from gui_theme import PALETTE, APP_NAME, APP_VERSION, stylesheet
@@ -88,9 +90,11 @@ class StatTile(QFrame):
 class SettingsDialog(QDialog):
     """톱니바퀴(환경설정) 창 — 크롬 실행 옵션과 로그 폴더."""
 
-    def __init__(self, engine, parent=None):
+    def __init__(self, engine, parent=None, user=None, store=None):
         super().__init__(parent)
         self.engine = engine
+        self.user = user
+        self.store = store
         self.setWindowTitle("환경설정")
         self.setMinimumWidth(420)
         self.setStyleSheet(stylesheet())
@@ -121,7 +125,36 @@ class SettingsDialog(QDialog):
         root.addWidget(self.args_edit)
 
         root.addWidget(hline())
-        info = QLabel(f"계정 파일: {engine_mod.ENV_PATH}\n로그 폴더: {LOG_DIR}")
+
+        if user is not None:
+            account_title = QLabel(f"로그인 계정 — {user.username}")
+            account_title.setObjectName("cardTitle")
+            root.addWidget(account_title)
+            joined = QLabel(f"가입일 {user.created_at} · 최근 로그인 {user.last_login_at or '-'}")
+            joined.setObjectName("hintLabel")
+            root.addWidget(joined)
+
+            pw_row = QHBoxLayout()
+            self.cur_pw = QLineEdit()
+            self.cur_pw.setEchoMode(QLineEdit.Password)
+            self.cur_pw.setPlaceholderText("현재 비밀번호")
+            self.new_pw = QLineEdit()
+            self.new_pw.setEchoMode(QLineEdit.Password)
+            self.new_pw.setPlaceholderText("새 비밀번호")
+            self.new_pw2 = QLineEdit()
+            self.new_pw2.setEchoMode(QLineEdit.Password)
+            self.new_pw2.setPlaceholderText("새 비밀번호 확인")
+            for w in (self.cur_pw, self.new_pw, self.new_pw2):
+                pw_row.addWidget(w)
+            change = QPushButton("변경")
+            change.clicked.connect(self._change_password)
+            pw_row.addWidget(change)
+            root.addLayout(pw_row)
+            root.addWidget(hline())
+
+        info = QLabel(f"계정 파일: {engine_mod.ENV_PATH}\n"
+                      f"프로필 폴더: {engine.profile_dir}\n"
+                      f"로그 폴더: {LOG_DIR}")
         info.setObjectName("hintLabel")
         info.setWordWrap(True)
         root.addWidget(info)
@@ -157,6 +190,24 @@ class SettingsDialog(QDialog):
         except Exception as e:
             QMessageBox.warning(self, "로그 폴더", f"폴더를 열지 못했습니다: {e}")
 
+    def _change_password(self):
+        if self.store is None or self.user is None:
+            return
+        try:
+            self.store.change_password(self.user.username, self.cur_pw.text(),
+                                       self.new_pw.text(), self.new_pw2.text())
+        except auth.AuthError as e:
+            QMessageBox.warning(self, "비밀번호 변경", str(e))
+            return
+        except Exception as e:
+            QMessageBox.critical(self, "비밀번호 변경", f"변경 중 오류가 발생했습니다: {e}")
+            return
+        for w in (self.cur_pw, self.new_pw, self.new_pw2):
+            w.clear()
+        LOG.log("로그인 비밀번호를 변경했습니다. (자동 로그인은 해제됨)")
+        QMessageBox.information(self, "비밀번호 변경",
+                                "비밀번호를 변경했습니다.\n자동 로그인은 해제되었습니다.")
+
     def _save(self):
         self.engine.settings.chrome_binary = self.chrome_edit.text().strip()
         self.engine.settings.extra_args = self.args_edit.text().strip()
@@ -171,8 +222,11 @@ class MainWindow(QWidget):
 
     RESIZE_MARGIN = 6
 
-    def __init__(self):
+    def __init__(self, user=None, store=None):
         super().__init__()
+        self.user = user
+        self.store = store
+        self.logout_requested = False
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
         self.setWindowIcon(app_icon())
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
@@ -181,7 +235,9 @@ class MainWindow(QWidget):
         self.resize(1080, 720)
         self.setMouseTracking(True)
 
-        self.engine = Engine(on_change=self.state_changed.emit)
+        self.engine = Engine(on_change=self.state_changed.emit,
+                             profile_dir=user.profile_dir if user else None,
+                             user=user)
         self.rows = {}                 # account -> AccountRow
         self._pending_mode = None      # 브라우저가 열리면 자동으로 시작할 모드
         self._schedule_fired_at = None
@@ -194,10 +250,15 @@ class MainWindow(QWidget):
         LOG.subscribe(lambda line: self.log_line.emit(line))
         self.engine.start_monitor()
         self.engine.apply_settings()
-        self.engine.load_env_accounts()
+        # 로그인한 사용자의 저장된 계정 → 없으면 .env에서 승계
+        if not self.engine.load_profile_accounts():
+            self.engine.load_env_accounts()
         if self.engine.settings.hotkeys:
             if not self.engine.start_hotkeys():
                 self.sw_hotkeys.setChecked(False)
+        if user is not None:
+            self.title_bar.set_user(user.display_name or user.username)
+            LOG.log(f"'{user.username}' 님으로 로그인했습니다.")
         LOG.log(f"{APP_NAME} {APP_VERSION} 준비 완료.")
 
     # ── UI 구성 ────────────────────────────────────────────────────────────
@@ -360,8 +421,8 @@ class MainWindow(QWidget):
         self.sw_hotkeys = ToggleSwitch(checked=True)
         self.sw_schedule = ToggleSwitch(checked=False)
 
-        form.addLayout(self._option_row("자동 로그인", self.sw_auto_login,
-                                        ".env에 저장된 ID/PW로 바로 로그인"))
+        form.addLayout(self._option_row("클래스카드 자동 로그인", self.sw_auto_login,
+                                        "저장된 클래스카드 ID/PW로 바로 로그인"))
         form.addLayout(self._option_row("백그라운드 실행", self.sw_anti_blur,
                                         "창이 가려져도 '이탈'로 잡히지 않게 처리"))
         form.addLayout(self._option_row("창 계단식 배치", self.sw_cascade,
@@ -497,6 +558,7 @@ class MainWindow(QWidget):
         self.title_bar.minimize_requested.connect(self.showMinimized)
         self.title_bar.maximize_requested.connect(self._toggle_max)
         self.title_bar.close_requested.connect(self.close)
+        self.title_bar.logout_requested.connect(self._logout)
         self.tabs.changed.connect(self.stack.setCurrentIndex)
         self.tabs.settings_btn.clicked.connect(self._open_settings)
 
@@ -636,11 +698,21 @@ class MainWindow(QWidget):
         if account is None:
             return
         text, ok = QInputDialog.getText(self, "비밀번호 변경",
-                                        f"[{account.user_id}] 비밀번호",
+                                        f"[{account.user_id}] 클래스카드 비밀번호",
                                         QLineEdit.Password, account.user_pw or "")
         if ok:
-            account.user_pw = text
-            LOG.log(f"{account.tag} 비밀번호를 변경했습니다. ('계정 저장'으로 .env에 반영)")
+            self.engine.set_password(account, text)
+
+    def _logout(self):
+        if self.engine.is_running():
+            if QMessageBox.question(
+                    self, "로그아웃",
+                    "자동화가 실행 중입니다. 중지하고 로그아웃할까요?") != QMessageBox.Yes:
+                return
+        if self.store is not None and self.user is not None:
+            self.store.forget(self.user.username)     # 자동 로그인 해제
+        self.logout_requested = True
+        self.close()
 
     def _export_wordbook(self):
         targets = [a for a in self.engine.selected() if a.driver is not None]
@@ -820,7 +892,7 @@ class MainWindow(QWidget):
                 self._toggle_run()
 
     def _open_settings(self):
-        SettingsDialog(self.engine, self).exec()
+        SettingsDialog(self.engine, self, user=self.user, store=self.store).exec()
 
     # ── 프레임리스 창(이동/크기 조절/닫기) ─────────────────────────────────
     def _toggle_max(self):
@@ -877,7 +949,7 @@ class MainWindow(QWidget):
         super().mouseMoveEvent(event)
 
     def closeEvent(self, event):
-        if self.engine.is_running():
+        if self.engine.is_running() and not self.logout_requested:
             answer = QMessageBox.question(
                 self, "종료", "자동화가 실행 중입니다. 정말 종료할까요?\n(열려 있는 크롬 창도 함께 닫힙니다)")
             if answer != QMessageBox.Yes:
@@ -896,9 +968,22 @@ def main():
     app.setWindowIcon(app_icon())
     app.setStyleSheet(stylesheet())
 
-    window = MainWindow()
-    window.show()
-    return app.exec()
+    store = None
+    allow_auto = True
+    while True:
+        # 로그인(또는 회원가입)에 성공해야 메인 화면이 열린다.
+        user, store = prompt_login(store, allow_auto=allow_auto)
+        if user is None:
+            return 0
+
+        window = MainWindow(user=user, store=store)
+        window.show()
+        code = app.exec()
+        if not window.logout_requested:
+            return code
+        # 로그아웃 → 자동 로그인은 건너뛰고 로그인 창을 다시 띄운다.
+        allow_auto = False
+        window.deleteLater()
 
 
 if __name__ == "__main__":
