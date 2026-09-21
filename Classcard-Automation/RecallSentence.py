@@ -6,6 +6,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import NoSuchWindowException
 
+from StudyEnd import check_step2_success_and_stop, reset_progress
+
 
 def tokenize(text):
     """텍스트를 토큰으로 분리. 'in(to)' 처럼 단어 중간의 '(' 앞에서 추가 분리."""
@@ -204,32 +206,6 @@ def find_sentence_by_candidates(available_tokens, sent_dict, tokenize_fn):
     return None
 
 
-def check_step2_success_and_stop(driver, stop_event):
-    """`.btn-study-end-repeat` 버튼이 보이면 완료. set 페이지로 복귀 후 stop."""
-    try:
-        done = driver.execute_script(
-            'return document.querySelectorAll("#study_end.active .btn-study-end-repeat").length > 0;'
-        )
-        if not done:
-            return False
-        driver.execute_script(
-            'var a = document.querySelectorAll("#study_end.active .study-header a"); if (a.length) a[0].click();'
-        )
-        driver.execute_script(
-            'var a = document.querySelectorAll(".btn-top-menu a"); if (a.length) a[0].click();'
-        )
-        time.sleep(0.5)
-        driver.execute_script(
-            'var a = document.querySelectorAll(".close_o"); if (a.length) a[0].click();'
-        )
-        stop_event.set()
-        return True
-    except NoSuchWindowException:
-        raise
-    except Exception:
-        return False
-
-
 def _click_button(driver, btn):
     try:
         btn.click()
@@ -338,6 +314,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
         return
 
     try:
+        reset_progress(driver)
         while not stop_event.is_set():
             # 매 카드마다 캡처된 정답 우선, 없으면 data.json 폴백
             page_answers = get_page_answers(driver)

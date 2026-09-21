@@ -5,39 +5,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common.exceptions import NoSuchWindowException
 
-
-def check_step2_success_and_stop(driver, stop_event):
-    """완료 종료 판단: `.btn-study-end-repeat` visible / `.next-repeat-percent` >= 100 / `#study_end.active` 중 하나."""
-    try:
-        done = driver.execute_script('''
-            var btns = document.querySelectorAll(".btn-study-end-repeat");
-            for (var i = 0; i < btns.length; i++) {
-                if (btns[i].offsetParent !== null) return true;
-            }
-            var ps = document.querySelectorAll(".next-repeat-percent");
-            for (var i = 0; i < ps.length; i++) {
-                if (ps[i].offsetParent !== null && parseInt(ps[i].textContent) >= 100) return true;
-            }
-            return document.querySelectorAll("#study_end.active").length > 0;
-        ''')
-        if not done:
-            return False
-        driver.execute_script(
-            'var a = document.querySelectorAll("#study_end.active .study-header a"); if (a.length) a[0].click();'
-        )
-        driver.execute_script(
-            'var a = document.querySelectorAll(".btn-top-menu a"); if (a.length) a[0].click();'
-        )
-        time.sleep(0.5)
-        driver.execute_script(
-            'var a = document.querySelectorAll(".close_o"); if (a.length) a[0].click();'
-        )
-        stop_event.set()
-        return True
-    except NoSuchWindowException:
-        raise
-    except Exception:
-        return False
+from StudyEnd import check_step2_success_and_stop, reset_progress
 
 
 def _wait_with_check(driver, stop_event, total, interval=0.2):
@@ -50,44 +18,6 @@ def _wait_with_check(driver, stop_event, total, interval=0.2):
         if check_step2_success_and_stop(driver, stop_event):
             return True
     return False
-
-
-def get_repeat_percent(driver):
-    """현재 보이는 `.next-repeat-percent` 중 최댓값(int). 못 읽으면 None.
-    1회독이 끝나면 이 값이 100에 도달했다가 0으로 리셋된다(다음 회독 시작)."""
-    try:
-        return driver.execute_script(r'''
-            var ps = document.querySelectorAll(".next-repeat-percent");
-            var max = -1;
-            for (var i = 0; i < ps.length; i++) {
-                if (ps[i].offsetParent === null) continue;
-                var v = parseInt(ps[i].textContent);
-                if (!isNaN(v) && v > max) max = v;
-            }
-            return max < 0 ? null : max;
-        ''')
-    except NoSuchWindowException:
-        raise
-    except Exception:
-        return None
-
-
-def exit_study_to_set(driver, stop_event):
-    """종료 버튼(2회독 후에야 뜸) 없이 학습 화면을 빠져나가 set 홈으로 복귀.
-    1회독 완료 시점에 중도 종료하기 위해 사용."""
-    try:
-        driver.execute_script(
-            'var a = document.querySelectorAll(".btn-top-menu a"); if (a.length) a[0].click();'
-        )
-        time.sleep(0.5)
-        driver.execute_script(
-            'var a = document.querySelectorAll(".close_o"); if (a.length) a[0].click();'
-        )
-    except NoSuchWindowException:
-        raise
-    except Exception:
-        pass
-    stop_event.set()
 
 
 def get_card_key(driver):
@@ -126,6 +56,7 @@ def _wait_change_or_stop(driver, stop_event, prev_key, total, interval=0.2):
 def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
     print("[암기] 시작")
     try:
+        reset_progress(driver)
         while not stop_event.is_set():
             if check_step2_success_and_stop(driver, stop_event):
                 break

@@ -5,6 +5,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchWindowException
 import threading
 
+from StudyEnd import check_step2_success_and_stop, reset_progress
+
 
 def click_answer(driver):
     try:
@@ -31,40 +33,6 @@ def click_answer(driver):
         return None
 
 
-def check_step2_success_and_stop(driver, stop_event):
-    """완료 종료 판단: `.btn-study-end-repeat` visible / `.next-repeat-percent` >= 100 / `#study_end.active` 중 하나."""
-    try:
-        done = driver.execute_script('''
-            var btns = document.querySelectorAll(".btn-study-end-repeat");
-            for (var i = 0; i < btns.length; i++) {
-                if (btns[i].offsetParent !== null) return true;
-            }
-            var ps = document.querySelectorAll(".next-repeat-percent");
-            for (var i = 0; i < ps.length; i++) {
-                if (ps[i].offsetParent !== null && parseInt(ps[i].textContent) >= 100) return true;
-            }
-            return document.querySelectorAll("#study_end.active").length > 0;
-        ''')
-        if not done:
-            return False
-        driver.execute_script(
-            'var a = document.querySelectorAll("#study_end.active .study-header a"); if (a.length) a[0].click();'
-        )
-        driver.execute_script(
-            'var a = document.querySelectorAll(".btn-top-menu a"); if (a.length) a[0].click();'
-        )
-        time.sleep(0.5)
-        driver.execute_script(
-            'var a = document.querySelectorAll(".close_o"); if (a.length) a[0].click();'
-        )
-        stop_event.set()
-        return True
-    except NoSuchWindowException:
-        raise
-    except Exception:
-        return False
-
-
 def _wait_with_check(driver, stop_event, total, interval=0.2):
     elapsed = 0.0
     while elapsed < total:
@@ -79,6 +47,7 @@ def _wait_with_check(driver, stop_event, total, interval=0.2):
 def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
     print("[리콜] 시작")
     try:
+        reset_progress(driver)
         while not stop_event.is_set():
             if check_step2_success_and_stop(driver, stop_event):
                 break
