@@ -1,5 +1,8 @@
 import os
+import queue
 import threading
+import tkinter as tk
+from functools import partial
 from dotenv import load_dotenv
 from pynput import keyboard
 from selenium import webdriver
@@ -298,8 +301,87 @@ start_automation_test = make_starter(Test.run_automation_loop)
 start_automation_test_sentence = make_starter(TestSentence.run_automation_loop)
 start_automation_matching = make_starter(Matching.run_automation_loop)
 start_automation_scramble = make_starter(Scramble.run_automation_loop)
-start_automation_all = make_starter(AutoAll.run_full_automation_loop, needs_dict=False)
-start_automation_one_set = make_starter(AutoAll.run_single_set_loop, needs_dict=False)
+
+
+# 전체 자동화 모드 선택 GUI. tkinter는 메인 스레드에서만 안전하므로, 단축키(리스너 스레드)는
+# 요청만 큐에 넣고 실제 창은 메인 루프가 띄운다.
+gui_requests = queue.Queue()
+selected_modes = set(AutoAll.MODE_KEYS)  # 마지막 선택을 기억
+
+MODE_LABELS = {
+    '스펠': '스펠 (필수로 지정된 set만)',
+    '매칭': '매칭 / 스크램블',
+}
+
+
+def ask_modes(title):
+    """체크박스로 수행할 모드를 고르는 창. 선택한 모드 set을 반환, 취소하면 None."""
+    result = {'modes': None}
+
+    root = tk.Tk()
+    root.title(title)
+    root.resizable(False, False)
+    root.attributes('-topmost', True)
+
+    tk.Label(root, text="수행할 모드를 선택하세요").pack(padx=24, pady=(14, 6))
+
+    variables = {}
+    for key in AutoAll.MODE_KEYS:
+        var = tk.BooleanVar(value=key in selected_modes)
+        variables[key] = var
+        tk.Checkbutton(root, text=MODE_LABELS.get(key, key), variable=var).pack(anchor='w', padx=24)
+
+    def on_start(event=None):
+        chosen = {k for k, v in variables.items() if v.get()}
+        if not chosen:
+            return
+        result['modes'] = chosen
+        root.destroy()
+
+    def on_cancel(event=None):
+        root.destroy()
+
+    buttons = tk.Frame(root)
+    buttons.pack(pady=12)
+    tk.Button(buttons, text="시작", width=9, command=on_start).pack(side='left', padx=4)
+    tk.Button(buttons, text="취소", width=9, command=on_cancel).pack(side='left', padx=4)
+
+    root.bind('<Return>', on_start)
+    root.bind('<Escape>', on_cancel)
+    root.protocol('WM_DELETE_WINDOW', on_cancel)
+
+    # 화면 가운데에 띄우고 포커스 가져오기
+    root.update_idletasks()
+    x = (root.winfo_screenwidth() - root.winfo_width()) // 2
+    y = (root.winfo_screenheight() - root.winfo_height()) // 3
+    root.geometry(f"+{x}+{y}")
+    root.after(50, root.focus_force)
+
+    root.mainloop()
+    return result['modes']
+
+
+def handle_gui_request(loop_func, title):
+    """(메인 스레드) 모드 선택 창을 띄우고, 선택대로 모든 계정에서 자동화를 시작."""
+    global selected_modes
+    if any(a.thread and a.thread.is_alive() for a in accounts):
+        print("[X] 자동화가 이미 실행 중입니다. Ctrl+E로 중지 후 다시 시도하세요.")
+        return
+    modes = ask_modes(title)
+    if modes is None:
+        print("    모드 선택 취소.")
+        return
+    selected_modes = modes
+    print(f"    선택한 모드: {', '.join(k for k in AutoAll.MODE_KEYS if k in modes)}")
+    make_starter(partial(loop_func, modes=modes), needs_dict=False)()
+
+
+def start_automation_all():
+    gui_requests.put((AutoAll.run_full_automation_loop, "전체 자동화"))
+
+
+def start_automation_one_set():
+    gui_requests.put((AutoAll.run_single_set_loop, "한 세트 자동화"))
 
 
 def stop_automation():
@@ -379,8 +461,8 @@ if __name__ == "__main__":
         print("   [Ctrl + Alt + H] 키 : 문장 테스트 자동화 시작")
         print("   [Ctrl + Alt + J] 키 : 단어 매칭 자동화 시작")
         print("   [Ctrl + Alt + K] 키 : 문장 스크램블 자동화 시작")
-        print("   [Ctrl + A] 키 : 전체 자동화 시작 (단어장 목록 페이지에서)")
-        print("   [Ctrl + Alt + S] 키 : 현재 셋홈 한 세트 전체 자동화 시작")
+        print("   [Ctrl + A] 키 : 전체 자동화 — 모드 선택 창 (단어장 목록 페이지에서)")
+        print("   [Ctrl + Alt + S] 키 : 현재 셋홈 한 세트 자동화 — 모드 선택 창")
         print("   [Ctrl + E] 키 : 자동화 멈추기 (전체 계정)")
         print("   [Ctrl + M] 키 : 단어장 가져오기 (전체 계정)")
         print("   [Ctrl + Esc] 키 : 프로그램 전체 종료 (브라우저 닫힘)")
@@ -404,7 +486,18 @@ if __name__ == "__main__":
         })
 
         hotkey_listener.start()
-        exit_event.wait()
+        while not exit_event.is_set():
+            try:
+                request = gui_requests.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            try:
+                handle_gui_request(*request)
+            except Exception as e:
+                print(f"[!] 모드 선택 창 오류: {e}")
+            # 창이 떠 있는 동안 쌓인 중복 요청은 버림
+            while not gui_requests.empty():
+                gui_requests.get_nowait()
         hotkey_listener.stop()
 
     else:

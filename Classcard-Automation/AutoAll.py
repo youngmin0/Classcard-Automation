@@ -25,9 +25,9 @@ RECALL_BTN_SELECTOR = '.btn-summary[onclick*="/Recall/"]'
 MATCH_BTN_SELECTOR = '.btn-summary[onclick*="/Match/"]'
 SPELL_BTN_SELECTOR = '.btn-summary[onclick*="/Spell/"]'
 TEST_BTN_SELECTOR = '.btn-start-speedquiz'
-TEST_PASS_SCORE = 90  # 단어 테스트: 최고점수가 이 점수 이상이면 완료로 간주
+TEST_PASS_SCORE = 70  # 단어 테스트: 최고점수가 이 점수 이상이면 완료로 간주
 SENTENCE_TEST_PASS_SCORE = 90  # 문장 테스트: 패스 기준 점수
-MATCH_PASS_SCORE = 3000  # 매칭(단어): 최고기록이 이 점수 이상이면 완료로 간주 (필수 기준)
+MATCH_PASS_SCORE = 1000  # 매칭(단어): 최고기록이 이 점수 이상이면 완료로 간주 (필수 기준)
 SCRAMBLE_PASS_SCORE = 4000  # 스크램블(문장): 최고기록이 이 점수 이상이면 완료로 간주 (필수 기준)
 TEST_NEXT_BTN_SELECTOR = '.btn-condition-next'  # '다음' 버튼
 TEST_START_BTN_SELECTOR = '.btn-quiz-start'     # '테스트 시작' 버튼
@@ -37,6 +37,9 @@ VIEW_TYPE_TOGGLE_SELECTOR = 'a[data-toggle="dropdown"] .str_view_type'
 START_LEARNING_BTN_SELECTOR = '.btn-opt-start'
 FULL_CARDS_DATA_IDX = "6"
 FULL_CARDS_LABEL = "전체 카드 학습"
+
+# 전체 자동화에서 선택 가능한 모드 ('매칭'은 문장 set의 스크램블을 포함)
+MODE_KEYS = ('암기', '리콜', '스펠', '매칭', '테스트')
 
 
 def is_sentence_set(set_name: str) -> bool:
@@ -332,28 +335,32 @@ def run_mode_isolated(driver, mode_fn, answer_dict, parent_stop_event):
         mode_stop_event.set()
 
 
-def process_set_detail(driver, sentence_mode, set_name, stop_event):
+def process_set_detail(driver, sentence_mode, set_name, stop_event, modes=None):
     """현재 set 상세(셋홈) 페이지에서 그 set의 전체 모드를 순서대로 수행.
     셋홈에 이미 진입해 있다고 가정하며, 목록 순회/복귀는 호출자가 담당한다.
-    순서: 암기 → 리콜 → (단어·필수면)스펠 → 매칭/스크램블 → 테스트."""
+    순서: 암기 → 리콜 → (단어·필수면)스펠 → 매칭/스크램블 → 테스트.
+    modes: 수행할 모드(MODE_KEYS의 부분집합). None이면 전부. 선택 안 된 모드는 완료로 간주."""
+    modes = set(MODE_KEYS) if modes is None else set(modes)
     # 문장 set은 문장 테스트(패스 90점), 단어 set은 단어 테스트(패스 70점)
     test_pass = SENTENCE_TEST_PASS_SCORE if sentence_mode else TEST_PASS_SCORE
 
     # 스펠은 단어 set + 선생님이 '필수'로 지정한 경우에만 (자율이면 건너뜀)
-    spell_required = (not sentence_mode) and is_spell_required(driver)
+    spell_required = (not sentence_mode) and '스펠' in modes and is_spell_required(driver)
 
-    memorize_done = is_mode_completed(driver, MEMORIZE_BTN_SELECTOR)
-    recall_done = is_mode_completed(driver, RECALL_BTN_SELECTOR)
-    test_done = is_test_done(driver, test_pass)
+    memorize_done = '암기' not in modes or is_mode_completed(driver, MEMORIZE_BTN_SELECTOR)
+    recall_done = '리콜' not in modes or is_mode_completed(driver, RECALL_BTN_SELECTOR)
+    test_done = '테스트' not in modes or is_test_done(driver, test_pass)
     # 문장 set은 스크램블(4000점), 단어 set은 매칭(1000점)
-    if sentence_mode:
+    if '매칭' not in modes:
+        game_done = True
+    elif sentence_mode:
         game_done = is_match_done(driver, SCRAMBLE_PASS_SCORE)
     else:
         game_done = is_match_done(driver, MATCH_PASS_SCORE)
     # 스펠: 필수가 아니면 완료로 간주(스킵), 필수면 data-rate로 판단
     spell_done = (not spell_required) or is_mode_completed(driver, SPELL_BTN_SELECTOR)
     if memorize_done and recall_done and test_done and game_done and spell_done:
-        print("[전체] 모든 모드 완료 — set 스킵")
+        print("[전체] 선택한 모드 모두 완료 — set 스킵")
         return
 
     ensure_full_cards_mode(driver, stop_event)
@@ -391,6 +398,8 @@ def process_set_detail(driver, sentence_mode, set_name, stop_event):
         '테스트', TEST_BTN_SELECTOR,
         TestSentence.run_automation_loop if sentence_mode else Test.run_automation_loop,
     ))
+    # 선택된 모드만 남김 (스크램블은 '매칭' 선택을 따른다)
+    mode_steps = [s for s in mode_steps if ('매칭' if s[0] == '스크램블' else s[0]) in modes]
 
     for mode_label, btn_selector, mode_fn in mode_steps:
         if stop_event.is_set():
@@ -477,7 +486,7 @@ def process_set_detail(driver, sentence_mode, set_name, stop_event):
             break
 
 
-def run_single_set_loop(driver, stop_event: threading.Event):
+def run_single_set_loop(driver, stop_event: threading.Event, modes=None):
     """현재 열려 있는 set 상세(셋홈) 페이지의 그 set만 전체 모드 수행 후 종료."""
     print("[한세트] 시작 (Ctrl+E로 중지)")
     if not wait_for_set_detail(driver, timeout=3):
@@ -487,7 +496,7 @@ def run_single_set_loop(driver, stop_event: threading.Event):
         sentence_mode = is_sentence_set_detail(driver)
         set_name = (driver.title or '').strip()
         print(f"\n[한세트] [{'문장' if sentence_mode else '단어'}] {set_name}")
-        process_set_detail(driver, sentence_mode, set_name, stop_event)
+        process_set_detail(driver, sentence_mode, set_name, stop_event, modes)
     except NoSuchWindowException:
         if not stop_event.is_set():
             print("[한세트] 브라우저 창이 닫혔습니다.")
@@ -498,7 +507,7 @@ def run_single_set_loop(driver, stop_event: threading.Event):
         print("[한세트] 종료")
 
 
-def run_full_automation_loop(driver, stop_event: threading.Event):
+def run_full_automation_loop(driver, stop_event: threading.Event, modes=None):
     print("[전체] 시작 (Ctrl+E로 중지)")
 
     if not wait_for_set_list(driver, timeout=3):
@@ -561,7 +570,7 @@ def run_full_automation_loop(driver, stop_event: threading.Event):
             sentence_mode = sentence_mode or is_sentence_set_detail(driver)
             print(f"\n[전체] [{'문장' if sentence_mode else '단어'}] {target['name']}")
 
-            process_set_detail(driver, sentence_mode, target['name'], stop_event)
+            process_set_detail(driver, sentence_mode, target['name'], stop_event, modes)
 
             if stop_event.is_set():
                 break
