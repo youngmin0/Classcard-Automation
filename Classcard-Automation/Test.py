@@ -314,10 +314,72 @@ def _click_exit(driver, timeout=8):
     return False
 
 
+
+# 개편(2026-09) 결과 화면: 문제 카드가 사라지고 "NN 목표점수 MM점 달성!/미달" + '완료' 버튼만 남는다.
+_NEW_RESULT_JS = r'''
+    var card = document.querySelector('.flip-card.showing');
+    if (card && card.offsetParent !== null) return false;
+    var els = document.querySelectorAll('a, button');
+    for (var i = 0; i < els.length; i++) {
+        var e = els[i];
+        if (e.offsetParent !== null && (e.textContent || '').trim() === '완료') { return true; }
+    }
+    return false;
+'''
+
+
+def _new_result_visible(driver) -> bool:
+    try:
+        return bool(driver.execute_script(_NEW_RESULT_JS))
+    except NoSuchWindowException:
+        raise
+    except Exception:
+        return False
+
+
+def _click_text(driver, text) -> bool:
+    try:
+        return bool(driver.execute_script(r'''
+            var els = document.querySelectorAll('a, button');
+            for (var i = 0; i < els.length; i++) {
+                var e = els[i];
+                if (e.offsetParent !== null && (e.textContent || '').trim() === arguments[0]) { e.click(); return true; }
+            }
+            return false;
+        ''', text))
+    except NoSuchWindowException:
+        raise
+    except Exception:
+        return False
+
+
+def _on_set_detail(driver) -> bool:
+    try:
+        return bool(driver.find_elements(By.CSS_SELECTOR, '.btn-summary'))
+    except Exception:
+        return False
+
+
+def _finish_new_result(driver, stop_event) -> bool:
+    """새 결과 화면이면 '완료' → (아직 셋홈이 아니면) '나가기'로 셋홈 복귀 후 stop. 아니면 False."""
+    if not _new_result_visible(driver):
+        return False
+    _click_text(driver, '완료')
+    for _ in range(10):
+        if stop_event.wait(timeout=0.5) or _on_set_detail(driver):
+            break
+    if not _on_set_detail(driver):
+        _click_exit(driver, timeout=8)
+        time.sleep(0.5)
+    stop_event.set()
+    return True
+
 def check_end_and_stop(driver, stop_event):
     """결과 화면(btn-go-result)이 보이면 제출결과확인 → X → 나가기 순으로 빠져나와
     set 상세 화면 복귀 후 stop_event.set()."""
     try:
+        if _finish_new_result(driver, stop_event):
+            return True
         buttons = driver.find_elements(By.CSS_SELECTOR, GO_RESULT_SELECTOR)
         visible = [b for b in buttons if b.is_displayed()]
         if not visible:

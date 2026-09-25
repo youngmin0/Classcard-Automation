@@ -116,10 +116,10 @@ if (qi) qid = qi.value;
 var flipped = card.classList.contains('flip');
 
 var prompt = '';
-var fh = card.querySelector('.flip-card-front .front-hidden');
+var fh = card.querySelector('.front-hidden') || card.querySelector('.para_item3');
 if (fh) prompt = (fh.textContent || '').trim();
 
-var words = card.querySelectorAll('.test-sentence-words a.btn').length;
+var words = card.querySelectorAll('.test-sentence-words a').length;
 var placed = card.querySelectorAll('.test-sentence-input span').length;
 
 return { found: true, qid: qid, flipped: flipped, prompt: prompt,
@@ -176,7 +176,7 @@ def click_word(driver, token):
     성공 True."""
     try:
         btns = driver.find_elements(
-            By.CSS_SELECTOR, '.flip-card.showing .test-sentence-words a.btn'
+            By.CSS_SELECTOR, '.flip-card.showing .test-sentence-words a'
         )
     except NoSuchWindowException:
         raise
@@ -188,8 +188,8 @@ def click_word(driver, token):
     for b in btns:
         try:
             cls = (b.get_attribute('class') or '').split()
-            if 'clicked' in cls:
-                continue
+            if 'clicked' in cls or not b.is_displayed():
+                continue  # 이미 쓴 타일 (class 또는 숨김)
             raw = (b.get_attribute('textContent') or b.text or '').strip()
             cands.append((b, raw))
         except NoSuchWindowException:
@@ -235,10 +235,10 @@ _LIST_BTNS_JS = r'''
 var card = document.querySelector('.flip-card.showing');
 if (!card) return [];
 var out = [];
-var btns = card.querySelectorAll('.test-sentence-words a.btn');
+var btns = card.querySelectorAll('.test-sentence-words a');
 for (var i = 0; i < btns.length; i++) {
   out.push((btns[i].textContent || '').trim() +
-           (btns[i].classList.contains('clicked') ? '*' : ''));
+           ((btns[i].classList.contains('clicked') || btns[i].offsetParent === null) ? '*' : ''));
 }
 return out;
 '''
@@ -249,6 +249,24 @@ def list_buttons(driver):
         return driver.execute_script(_LIST_BTNS_JS) or []
     except Exception:
         return []
+
+
+def click_submit(driver):
+    """현재 문제의 '제출' 버튼(보이는 것)을 클릭. 없으면 False. (개편 후 어순배열 완료 시 직접 제출해야 함)"""
+    try:
+        return bool(driver.execute_script(r'''
+            var card = document.querySelector('.flip-card.showing') || document;
+            var els = card.querySelectorAll('a, button');
+            for (var i = 0; i < els.length; i++) {
+                if (els[i].offsetParent === null) continue;
+                if ((els[i].textContent || '').trim() === '제출') { els[i].click(); return true; }
+            }
+            return false;
+        '''))
+    except NoSuchWindowException:
+        raise
+    except Exception:
+        return False
 
 
 def _press_space(driver):
@@ -305,10 +323,72 @@ def _click_exit(driver, timeout=10):
     return False
 
 
+
+# 개편(2026-09) 결과 화면: 문제 카드가 사라지고 "NN 목표점수 MM점 달성!/미달" + '완료' 버튼만 남는다.
+_NEW_RESULT_JS = r'''
+    var card = document.querySelector('.flip-card.showing');
+    if (card && card.offsetParent !== null) return false;
+    var els = document.querySelectorAll('a, button');
+    for (var i = 0; i < els.length; i++) {
+        var e = els[i];
+        if (e.offsetParent !== null && (e.textContent || '').trim() === '완료') { return true; }
+    }
+    return false;
+'''
+
+
+def _new_result_visible(driver) -> bool:
+    try:
+        return bool(driver.execute_script(_NEW_RESULT_JS))
+    except NoSuchWindowException:
+        raise
+    except Exception:
+        return False
+
+
+def _click_text(driver, text) -> bool:
+    try:
+        return bool(driver.execute_script(r'''
+            var els = document.querySelectorAll('a, button');
+            for (var i = 0; i < els.length; i++) {
+                var e = els[i];
+                if (e.offsetParent !== null && (e.textContent || '').trim() === arguments[0]) { e.click(); return true; }
+            }
+            return false;
+        ''', text))
+    except NoSuchWindowException:
+        raise
+    except Exception:
+        return False
+
+
+def _on_set_detail(driver) -> bool:
+    try:
+        return bool(driver.find_elements(By.CSS_SELECTOR, '.btn-summary'))
+    except Exception:
+        return False
+
+
+def _finish_new_result(driver, stop_event) -> bool:
+    """새 결과 화면이면 '완료' → (아직 셋홈이 아니면) '나가기'로 셋홈 복귀 후 stop. 아니면 False."""
+    if not _new_result_visible(driver):
+        return False
+    _click_text(driver, '완료')
+    for _ in range(10):
+        if stop_event.wait(timeout=0.5) or _on_set_detail(driver):
+            break
+    if not _on_set_detail(driver):
+        _click_exit(driver, timeout=8)
+        time.sleep(0.5)
+    stop_event.set()
+    return True
+
 def check_end_and_stop(driver, stop_event):
     """결과 화면(btn-go-result '제출 결과 확인')이 보이면 클릭 → '나가기'(set 링크) 클릭으로
     set 상세 화면 복귀 후 stop_event.set(). (단어 테스트와 달리 X 닫기 단계 없음)"""
     try:
+        if _finish_new_result(driver, stop_event):
+            return True
         buttons = driver.find_elements(By.CSS_SELECTOR, GO_RESULT_SELECTOR)
         visible = [b for b in buttons if b.is_displayed()]
         if not visible:
@@ -493,9 +573,10 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
                 print("[문장 테스트] 진행이 멈춰 종료합니다 (매칭 실패/UI 변경 가능).")
                 break
 
-            # 이미 배열 완료한 문제 → 다음으로 진행
+            # 이미 배열 완료한 문제 → '제출'(없으면 SPACE)로 다음 문제로
             if qid and qid in answered_qids:
-                _press_space(driver)
+                if not click_submit(driver):
+                    _press_space(driver)
                 if stop_event.wait(timeout=0.6):
                     break
                 continue
@@ -530,6 +611,9 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             answered_qids.add(qid)
             if res == 'stop':
                 break
+            if stop_event.wait(timeout=0.3):
+                break
+            click_submit(driver)
 
             if stop_event.wait(timeout=0.5):
                 break

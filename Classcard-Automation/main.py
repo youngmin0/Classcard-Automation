@@ -355,9 +355,10 @@ MODE_LABELS = {
 SET_LIST_MAX_HEIGHT = 360  # 세트 목록 영역 최대 높이(px), 넘으면 스크롤
 
 
-def ask_selection(title, sets=None):
+def ask_selection(title, sets=None, preselect=()):
     """세트(선택)와 모드를 체크박스로 고르는 창.
-    sets: [{'idx','name','sentence'}] — 주면 세트 목록을 보여준다(기본 전부 해제). None이면 모드만.
+    sets: [{'idx','name','sentence'}] — 주면 세트 목록을 보여준다. None이면 모드만.
+    preselect: 미리 체크해 둘 세트 idx 집합 (지난번 선택).
     반환: (set_idxs 또는 None, modes). 취소하면 None."""
     result = {'value': None}
 
@@ -387,7 +388,7 @@ def ask_selection(title, sets=None):
         canvas.configure(yscrollcommand=scrollbar.set)
 
         for s in sets:
-            var = tk.BooleanVar(value=False)
+            var = tk.BooleanVar(value=s['idx'] in preselect)
             set_vars[s['idx']] = var
             label = s['name'] + (' (문장)' if s.get('sentence') else '')
             tk.Checkbutton(inner, text=label, variable=var).pack(anchor='w')
@@ -510,12 +511,15 @@ def handle_gui_request(kind):
             print(f"{account.tag} [!] 세트 목록이 비어 있습니다. 건너뜀.")
             continue
 
-        picked = ask_selection(f"전체 자동화 — {account.user_id}", sets)
+        # 지난번에 고른 세트(계정별, settings.json)를 미리 체크해 둔다
+        picked = ask_selection(f"전체 자동화 — {account.user_id}", sets,
+                               preselect=Settings.get_last_sets(account.user_id))
         if picked is None:
             print(f"{account.tag} 선택 취소 — 건너뜀.")
             continue
         set_idxs, modes = picked
         selected_modes = modes
+        Settings.save_last_sets(account.user_id, set_idxs)
         print(f"{account.tag} 세트 {len(set_idxs)}개 / 모드: {_mode_names(modes)}")
         start_one(account, partial(AutoAll.run_full_automation_loop, modes=modes, set_idxs=set_idxs),
                   needs_dict=False)

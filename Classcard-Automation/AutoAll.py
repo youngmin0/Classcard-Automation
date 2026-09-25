@@ -11,6 +11,7 @@ from selenium.common.exceptions import (
 import HtmlParser
 import Settings
 import Spell
+import SpellSentence
 import Memorize
 import MemorizeSentence
 import Recall
@@ -336,15 +337,15 @@ def run_mode_isolated(driver, mode_fn, answer_dict, parent_stop_event):
 def process_set_detail(driver, sentence_mode, set_name, stop_event, modes=None):
     """현재 set 상세(셋홈) 페이지에서 그 set의 전체 모드를 순서대로 수행.
     셋홈에 이미 진입해 있다고 가정하며, 목록 순회/복귀는 호출자가 담당한다.
-    순서: 암기 → 리콜 → (단어·필수면)스펠 → 매칭/스크램블 → 테스트.
+    순서: 암기 → 리콜 → (필수면)스펠 → 매칭/스크램블 → 테스트.
     modes: 수행할 모드(MODE_KEYS의 부분집합). None이면 전부. 선택 안 된 모드는 완료로 간주."""
     modes = set(MODE_KEYS) if modes is None else set(modes)
     # 문장 set은 문장 테스트/스크램블, 단어 set은 단어 테스트/매칭 기준 (Ctrl+A 창에서 조절)
     test_pass = Settings.get('sent_test_pass' if sentence_mode else 'test_pass')
     game_pass = Settings.get('scramble_pass' if sentence_mode else 'match_pass')
 
-    # 스펠은 단어 set + 선생님이 '필수'로 지정한 경우에만 (자율이면 건너뜀)
-    spell_required = (not sentence_mode) and '스펠' in modes and is_spell_required(driver)
+    # 스펠은 선생님이 '필수'로 지정한 경우에만 (자율이면 건너뜀). 단어/문장 set 모두 해당
+    spell_required = '스펠' in modes and is_spell_required(driver)
 
     memorize_done = '암기' not in modes or is_mode_completed(driver, MEMORIZE_BTN_SELECTOR)
     recall_done = '리콜' not in modes or is_mode_completed(driver, RECALL_BTN_SELECTOR)
@@ -380,12 +381,13 @@ def process_set_detail(driver, sentence_mode, set_name, stop_event, modes=None):
         ('리콜', RECALL_BTN_SELECTOR,
          RecallSentence.run_automation_loop if sentence_mode else Recall.run_automation_loop),
     ]
-    # 리콜 다음, 테스트 전: 문장 set은 스크램블, 단어 set은 (필수면)스펠 → 매칭
+    # 리콜 다음, 테스트 전: (필수면)스펠 → 문장 set은 스크램블, 단어 set은 매칭
+    if spell_required:
+        mode_steps.append(('스펠', SPELL_BTN_SELECTOR,
+                           SpellSentence.run_automation_loop if sentence_mode else Spell.run_automation_loop))
     if sentence_mode:
         mode_steps.append(('스크램블', MATCH_BTN_SELECTOR, Scramble.run_automation_loop))
     else:
-        if spell_required:
-            mode_steps.append(('스펠', SPELL_BTN_SELECTOR, Spell.run_automation_loop))
         mode_steps.append(('매칭', MATCH_BTN_SELECTOR, Matching.run_automation_loop))
     mode_steps.append((
         '테스트', TEST_BTN_SELECTOR,
@@ -417,18 +419,17 @@ def process_set_detail(driver, sentence_mode, set_name, stop_event, modes=None):
 
         # --- 수정된 테스트 모드 진입 흐름 ---
         if mode_label == '테스트':
-            # 1. '다음' 버튼 클릭 대기 및 실행
+            # 1. '다음' 버튼 (있을 때만 — 일부 테스트는 이 단계 없이 바로 '테스트 시작')
             try:
-                next_btn = WebDriverWait(driver, 5).until(
+                next_btn = WebDriverWait(driver, 3).until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, TEST_NEXT_BTN_SELECTOR))
                 )
                 try:
                     next_btn.click()
                 except Exception:
                     driver.execute_script("arguments[0].click();", next_btn)
-            except Exception as e:
-                print(f"[전체] 테스트 '다음' 버튼 클릭 실패: {e}")
-                continue
+            except Exception:
+                pass
 
             if stop_event.wait(timeout=0.8): # 화면 전환 여유 시간
                 break

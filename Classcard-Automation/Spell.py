@@ -1,9 +1,10 @@
 import json
 import os
-import time
 import threading
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchWindowException
+
+from StudyEnd import check_step2_success_and_stop, reset_progress
 from selenium.webdriver.common.keys import Keys
 
 
@@ -95,36 +96,6 @@ def find_answer(answer_dict, prompt):
     return None
 
 
-def check_step2_success_and_stop(driver, stop_event):
-    """`#study_end.active` 또는 `.btn-study-end-repeat`가 보이면 완료. set 페이지로 복귀 후 stop."""
-    try:
-        done = driver.execute_script('''
-            var btns = document.querySelectorAll(".btn-study-end-repeat");
-            for (var i = 0; i < btns.length; i++) {
-                if (btns[i].offsetParent !== null) return true;
-            }
-            return document.querySelectorAll("#study_end.active").length > 0;
-        ''')
-        if not done:
-            return False
-        driver.execute_script(
-            'var a = document.querySelectorAll("#study_end.active .study-header a"); if (a.length) a[0].click();'
-        )
-        driver.execute_script(
-            'var a = document.querySelectorAll(".btn-top-menu a"); if (a.length) a[0].click();'
-        )
-        time.sleep(0.5)
-        driver.execute_script(
-            'var a = document.querySelectorAll(".close_o"); if (a.length) a[0].click();'
-        )
-        stop_event.set()
-        return True
-    except NoSuchWindowException:
-        raise
-    except Exception:
-        return False
-
-
 def _wait_next_card(driver, stop_event, prev_idx, timeout=2.5):
     """현재 카드(data-idx)가 prev_idx에서 바뀌거나 완료될 때까지 대기.
     반환: 'changed' | 'done' | 'stopped' | 'stuck'"""
@@ -149,6 +120,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
         return
 
     try:
+        reset_progress(driver)
         while not stop_event.is_set():
             if check_step2_success_and_stop(driver, stop_event):
                 break
@@ -190,6 +162,9 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             if status in ('stopped', 'done'):
                 break
             if status == 'stuck':
+                # 종료 화면에서 SPACE를 누르면 200% 반복이 시작되므로 직전에 한 번 더 확인
+                if check_step2_success_and_stop(driver, stop_event):
+                    break
                 try:
                     driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.SPACE)
                 except Exception:

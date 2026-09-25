@@ -82,6 +82,13 @@ def _click_item(driver, item):
         driver.execute_script("arguments[0].click();", item)
 
 
+_QUOTE_MAP = str.maketrans({'‘': "'", '’': "'", '“': '"', '”': '"', '–': '-', '—': '-'})
+
+
+def _norm_quotes(text):
+    return text.translate(_QUOTE_MAP)
+
+
 def _try_click_token(driver, raw_token):
     """단일 raw_token으로 화면 scramble-item 한 개 매칭+클릭. 못 찾으면 False."""
     items = driver.find_elements(By.CSS_SELECTOR, ".active .scramble-item:not(.clicked)")
@@ -94,8 +101,16 @@ def _try_click_token(driver, raw_token):
     cleaned = re.sub(r"[^a-zA-Z0-9]", "", raw_token)
     if not cleaned:
         return False
-    for item in items:
-        if re.sub(r"[^a-zA-Z0-9]", "", item.text.strip()) == cleaned:
+    texts = [(item, _norm_quotes(item.text.strip())) for item in items]
+    # 1) 구두점까지 정확히 같은 타일 우선 ('image'와 'image;'가 같이 있을 때 잘못 누르지 않도록)
+    target = _norm_quotes(raw_token.strip())
+    for item, text in texts:
+        if text == target:
+            _click_item(driver, item)
+            return True
+    # 2) 없으면 영숫자만 비교 (타일과 정답의 구두점 표기가 다른 경우)
+    for item, text in texts:
+        if re.sub(r"[^a-zA-Z0-9]", "", text) == cleaned:
             _click_item(driver, item)
             return True
     return False

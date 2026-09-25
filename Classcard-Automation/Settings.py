@@ -21,10 +21,11 @@ GROUPS = [
 ]
 
 _values = dict(DEFAULTS)
+_last_sets = {}  # 계정 아이디 → 마지막으로 고른 세트 idx 목록 (settings.json에 같이 저장)
 
 
 def load():
-    global _values
+    global _values, _last_sets
     try:
         with open(_PATH, 'r', encoding='utf-8') as f:
             data = json.load(f)
@@ -32,20 +33,37 @@ def load():
         for k in DEFAULTS:
             if isinstance(data.get(k), int):
                 _values[k] = data[k]
+        ls = data.get('last_sets')
+        if isinstance(ls, dict):
+            _last_sets = {str(u): [str(i) for i in v] for u, v in ls.items() if isinstance(v, list)}
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         _values = dict(DEFAULTS)
     return dict(_values)
+
+
+def _write():
+    try:
+        with open(_PATH, 'w', encoding='utf-8') as f:
+            json.dump({**_values, 'last_sets': _last_sets}, f, ensure_ascii=False, indent=2)
+    except OSError as e:
+        print(f"[!] settings.json 저장 실패: {e}")
 
 
 def save(values):
     global _values
     _values = dict(DEFAULTS)
     _values.update({k: int(v) for k, v in values.items() if k in DEFAULTS})
-    try:
-        with open(_PATH, 'w', encoding='utf-8') as f:
-            json.dump(_values, f, ensure_ascii=False, indent=2)
-    except OSError as e:
-        print(f"[!] settings.json 저장 실패: {e}")
+    _write()
+
+
+def get_last_sets(user_id):
+    """이 계정이 마지막으로 고른 세트 idx 집합 (없으면 빈 집합)."""
+    return set(_last_sets.get(str(user_id), []))
+
+
+def save_last_sets(user_id, idxs):
+    _last_sets[str(user_id)] = sorted(str(i) for i in idxs)
+    _write()
 
 
 def get(key):
