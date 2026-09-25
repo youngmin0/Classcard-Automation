@@ -1,5 +1,7 @@
+import builtins
 import os
 import queue
+import subprocess
 import threading
 import tkinter as tk
 from functools import partial
@@ -11,6 +13,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from pynput.keyboard import GlobalHotKeys
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 import atexit
 import Spell
 import Recall
@@ -19,6 +22,7 @@ import MemorizeSentence
 import RecallSentence
 import HtmlParser
 import AutoAll
+import Settings
 import Test
 import TestSentence
 import Matching
@@ -97,6 +101,21 @@ ANSWER_CAPTURE_JS = r'''
 '''
 
 
+# 다계정일 때 어느 계정의 로그인지 알 수 있도록, 자동화 스레드에서 나온 print 앞에 계정 태그를 붙인다.
+_thread_tag = threading.local()
+_builtin_print = builtins.print
+
+
+def _tagged_print(*args, **kwargs):
+    tag = getattr(_thread_tag, 'tag', None)
+    if tag and len(accounts) > 1:
+        args = (tag,) + args
+    _builtin_print(*args, **kwargs)
+
+
+builtins.print = _tagged_print  # 모든 모듈의 print에 적용
+
+
 class Account:
     """계정 1개 = 크롬 1개. 계정마다 독립된 driver / answer_dict / 자동화 스레드를 가진다."""
     def __init__(self, user_id, user_pw):
@@ -157,12 +176,17 @@ def initialize_browser(account, position_index):
     chrome_options = Options()
 
     # ================= 자동화 탐지 우회 ====================================
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
     chrome_options.add_argument(f'user-agent={user_agent}')
     # =====================================================================
+
+    # 크롬/chromedriver가 콘솔에 뿌리는 로그(updater, gcm, TensorFlow 등) 끄기
+    chrome_options.add_argument("--log-level=3")
+    chrome_options.add_argument("--disable-logging")
+    service = Service(log_output=subprocess.DEVNULL)
 
     # 데스크톱 레이아웃 유지를 위해 큰 크기로 띄우고, 계정마다 계단식으로 살짝 겹쳐 배치
     step = position_index % WIN_CASCADE_WRAP
@@ -172,7 +196,7 @@ def initialize_browser(account, position_index):
     chrome_options.add_argument(f"--window-position={pos_x},{pos_y}")
 
     try:
-        driver_instance = webdriver.Chrome(options=chrome_options)
+        driver_instance = webdriver.Chrome(service=service, options=chrome_options)
         # 모든 새 문서에 '이탈 감지 우회' + '리콜 정답 캡처' 스크립트를 사전 주입
         # (페이지 스크립트보다 먼저 실행되어야 함)
         try:
@@ -259,9 +283,22 @@ def ensure_answer_dict(account):
     return account.answer_dict
 
 
+def driver_alive(account) -> bool:
+    """브라우저 창을 사용자가 닫았거나 크롬이 죽으면 세션이 무효가 된다."""
+    try:
+        account.driver.current_url
+        return True
+    except Exception:
+        return False
+
+
 def start_one(account, module_func, needs_dict):
     """한 계정에서 자동화 스레드를 시작."""
     if account.driver is None:
+        print(f"{account.tag} [!] 브라우저가 없습니다 (시작 시 실행 실패).")
+        return
+    if not driver_alive(account):
+        print(f"{account.tag} [!] 브라우저 창이 닫혔습니다. 프로그램을 종료(Ctrl+Esc)하고 다시 실행하세요.")
         return
     with account.lock:
         if account.thread and account.thread.is_alive():
@@ -278,9 +315,12 @@ def start_one(account, module_func, needs_dict):
             args = (account.driver, account.answer_dict, account.stop_event)
         else:
             args = (account.driver, account.stop_event)
-        account.thread = threading.Thread(target=module_func, args=args, daemon=True)
+        def run_tagged():
+            _thread_tag.tag = account.tag
+            module_func(*args)
+
+        account.thread = threading.Thread(target=run_tagged, daemon=True)
         account.thread.start()
-        print(f"{account.tag} 자동화 시작")
 
 
 def make_starter(module_func, needs_dict=True):
@@ -303,39 +343,111 @@ start_automation_matching = make_starter(Matching.run_automation_loop)
 start_automation_scramble = make_starter(Scramble.run_automation_loop)
 
 
-# 전체 자동화 모드 선택 GUI. tkinter는 메인 스레드에서만 안전하므로, 단축키(리스너 스레드)는
+# 전체 자동화 세트/모드 선택 GUI. tkinter는 메인 스레드에서만 안전하므로, 단축키(리스너 스레드)는
 # 요청만 큐에 넣고 실제 창은 메인 루프가 띄운다.
 gui_requests = queue.Queue()
-selected_modes = set(AutoAll.MODE_KEYS)  # 마지막 선택을 기억
+selected_modes = set(AutoAll.MODE_KEYS)  # 마지막으로 고른 모드를 기억 (세트는 기억하지 않음)
 
 MODE_LABELS = {
     '스펠': '스펠 (필수로 지정된 set만)',
     '매칭': '매칭 / 스크램블',
 }
+SET_LIST_MAX_HEIGHT = 360  # 세트 목록 영역 최대 높이(px), 넘으면 스크롤
 
 
-def ask_modes(title):
-    """체크박스로 수행할 모드를 고르는 창. 선택한 모드 set을 반환, 취소하면 None."""
-    result = {'modes': None}
+def ask_selection(title, sets=None):
+    """세트(선택)와 모드를 체크박스로 고르는 창.
+    sets: [{'idx','name','sentence'}] — 주면 세트 목록을 보여준다(기본 전부 해제). None이면 모드만.
+    반환: (set_idxs 또는 None, modes). 취소하면 None."""
+    result = {'value': None}
 
     root = tk.Tk()
     root.title(title)
     root.resizable(False, False)
     root.attributes('-topmost', True)
 
-    tk.Label(root, text="수행할 모드를 선택하세요").pack(padx=24, pady=(14, 6))
+    set_vars = {}
+    if sets:
+        tk.Label(root, text=f"돌릴 세트를 선택하세요 ({len(sets)}개)").pack(padx=24, pady=(14, 4))
 
-    variables = {}
+        sel_buttons = tk.Frame(root)
+        sel_buttons.pack(padx=24, anchor='w')
+        tk.Button(sel_buttons, text="전체 선택", width=9,
+                  command=lambda: [v.set(True) for v in set_vars.values()]).pack(side='left', padx=(0, 4))
+        tk.Button(sel_buttons, text="전체 해제", width=9,
+                  command=lambda: [v.set(False) for v in set_vars.values()]).pack(side='left')
+
+        # 세트가 많으면 스크롤: Canvas 안에 Frame을 넣는다
+        outer = tk.Frame(root)
+        outer.pack(padx=24, pady=(4, 0), fill='x')
+        canvas = tk.Canvas(outer, highlightthickness=0, borderwidth=0)
+        scrollbar = tk.Scrollbar(outer, orient='vertical', command=canvas.yview)
+        inner = tk.Frame(canvas)
+        canvas.create_window((0, 0), window=inner, anchor='nw')
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        for s in sets:
+            var = tk.BooleanVar(value=False)
+            set_vars[s['idx']] = var
+            label = s['name'] + (' (문장)' if s.get('sentence') else '')
+            tk.Checkbutton(inner, text=label, variable=var).pack(anchor='w')
+
+        inner.update_idletasks()
+        req_w, req_h = inner.winfo_reqwidth(), inner.winfo_reqheight()
+        canvas.configure(width=req_w + 20, height=min(req_h, SET_LIST_MAX_HEIGHT),
+                         scrollregion=(0, 0, req_w, req_h))
+        canvas.pack(side='left', fill='both', expand=True)
+        if req_h > SET_LIST_MAX_HEIGHT:
+            scrollbar.pack(side='right', fill='y')
+            root.bind_all('<MouseWheel>',
+                          lambda e: canvas.yview_scroll(-1 if e.delta > 0 else 1, 'units'))
+
+        tk.Frame(root, height=1, bg='#c0c0c0').pack(fill='x', padx=24, pady=(10, 0))
+
+    tk.Label(root, text="수행할 모드를 선택하세요").pack(padx=24, pady=(10, 4))
+    mode_vars = {}
     for key in AutoAll.MODE_KEYS:
         var = tk.BooleanVar(value=key in selected_modes)
-        variables[key] = var
+        mode_vars[key] = var
         tk.Checkbutton(root, text=MODE_LABELS.get(key, key), variable=var).pack(anchor='w', padx=24)
 
+    # 점수 설정: 통과 기준(셋홈에서 이 점수 이상이면 스킵) / 목표 점수 하한~상한(실제로 낼 점수, 랜덤)
+    tk.Frame(root, height=1, bg='#c0c0c0').pack(fill='x', padx=24, pady=(10, 0))
+    tk.Label(root, text="점수 설정").pack(padx=24, pady=(10, 2))
+    grid = tk.Frame(root)
+    grid.pack(padx=24)
+    for col, head in enumerate(("", "통과 기준", "목표 하한", "목표 상한")):
+        tk.Label(grid, text=head, fg='#555555').grid(row=0, column=col, padx=4)
+    score_vars = {}
+    for row, (label, prefix, limit) in enumerate(Settings.GROUPS, start=1):
+        tk.Label(grid, text=label + (" (0~100)" if limit else "")).grid(row=row, column=0, sticky='w', padx=4)
+        for col, suffix in enumerate(('pass', 'min', 'max'), start=1):
+            key = f'{prefix}_{suffix}'
+            var = tk.StringVar(value=str(Settings.get(key)))
+            score_vars[key] = var
+            tk.Entry(grid, textvariable=var, width=7, justify='right').grid(row=row, column=col, padx=4, pady=1)
+
+    hint = tk.Label(root, text="", fg='#c00000')
+    hint.pack(padx=24)
+
     def on_start(event=None):
-        chosen = {k for k, v in variables.items() if v.get()}
-        if not chosen:
+        modes = {k for k, v in mode_vars.items() if v.get()}
+        if not modes:
+            hint.config(text="모드를 하나 이상 선택하세요.")
             return
-        result['modes'] = chosen
+        set_idxs = None
+        if sets:
+            set_idxs = {k for k, v in set_vars.items() if v.get()}
+            if not set_idxs:
+                hint.config(text="세트를 하나 이상 선택하세요.")
+                return
+        scores = {k: v.get().strip() for k, v in score_vars.items()}
+        problem = Settings.validate(scores)
+        if problem:
+            hint.config(text=problem)
+            return
+        Settings.save(scores)
+        result['value'] = (set_idxs, modes)
         root.destroy()
 
     def on_cancel(event=None):
@@ -358,34 +470,67 @@ def ask_modes(title):
     root.after(50, root.focus_force)
 
     root.mainloop()
-    return result['modes']
+    return result['value']
 
 
-def handle_gui_request(loop_func, title):
-    """(메인 스레드) 모드 선택 창을 띄우고, 선택대로 모든 계정에서 자동화를 시작."""
+def _mode_names(modes):
+    return ', '.join(k for k in AutoAll.MODE_KEYS if k in modes)
+
+
+def handle_gui_request(kind):
+    """(메인 스레드) 선택 창을 띄우고 자동화를 시작.
+    kind='all': 계정마다 차례로 세트/모드 선택 창 → 그 계정만 시작.
+    kind='one': 모드 선택 창 한 번 → 모든 계정에서 현재 셋홈 한 세트 시작."""
     global selected_modes
     if any(a.thread and a.thread.is_alive() for a in accounts):
         print("[X] 자동화가 이미 실행 중입니다. Ctrl+E로 중지 후 다시 시도하세요.")
         return
-    modes = ask_modes(title)
-    if modes is None:
-        print("    모드 선택 취소.")
+
+    if kind == 'one':
+        picked = ask_selection("한 세트 자동화")
+        if picked is None:
+            print("    선택 취소.")
+            return
+        _, modes = picked
+        selected_modes = modes
+        print(f"    모드: {_mode_names(modes)}")
+        make_starter(partial(AutoAll.run_single_set_loop, modes=modes), needs_dict=False)()
         return
-    selected_modes = modes
-    print(f"    선택한 모드: {', '.join(k for k in AutoAll.MODE_KEYS if k in modes)}")
-    make_starter(partial(loop_func, modes=modes), needs_dict=False)()
+
+    for account in accounts:
+        if account.driver is None or not driver_alive(account):
+            print(f"{account.tag} [!] 브라우저가 닫혔습니다. 건너뜀.")
+            continue
+        if not AutoAll.wait_for_set_list(account.driver, timeout=3):
+            print(f"{account.tag} [!] 단어장 목록 페이지가 아닙니다. 건너뜀.")
+            continue
+        sets = [{'idx': s['idx'], 'name': s['name'], 'sentence': s['sentence']}
+                for s in AutoAll.get_set_items(account.driver) if s['idx']]
+        if not sets:
+            print(f"{account.tag} [!] 세트 목록이 비어 있습니다. 건너뜀.")
+            continue
+
+        picked = ask_selection(f"전체 자동화 — {account.user_id}", sets)
+        if picked is None:
+            print(f"{account.tag} 선택 취소 — 건너뜀.")
+            continue
+        set_idxs, modes = picked
+        selected_modes = modes
+        print(f"{account.tag} 세트 {len(set_idxs)}개 / 모드: {_mode_names(modes)}")
+        start_one(account, partial(AutoAll.run_full_automation_loop, modes=modes, set_idxs=set_idxs),
+                  needs_dict=False)
 
 
 def start_automation_all():
-    gui_requests.put((AutoAll.run_full_automation_loop, "전체 자동화"))
+    gui_requests.put('all')
 
 
 def start_automation_one_set():
-    gui_requests.put((AutoAll.run_single_set_loop, "한 세트 자동화"))
+    gui_requests.put('one')
 
 
 def stop_automation():
-    print("\n[Ctrl + E] 키 입력: 모든 계정 자동화를 중지합니다...")
+    print("\n[Ctrl + E] 자동화 중지")
     any_running = False
     for account in accounts:
         with account.lock:
@@ -400,7 +545,7 @@ def stop_automation():
 
 def html_parse():
     """모든 계정에서 각자의 현재 페이지 단어장을 가져와 계정별 answer_dict 갱신."""
-    print("\n[Ctrl + M] 키 입력: 모든 계정의 단어장을 가져옵니다...")
+    print("\n[Ctrl + M] 단어장 가져오기")
     for account in accounts:
         if account.driver is None:
             continue
@@ -428,7 +573,7 @@ def cleanup_on_exit():
 
 
 def exit_program():
-    print("\n[Ctrl + Esc] 키 입력: 프로그램을 종료합니다...")
+    print("\n[Ctrl + Esc] 프로그램 종료")
     stop_automation()
     exit_event.set()
 
@@ -461,7 +606,7 @@ if __name__ == "__main__":
         print("   [Ctrl + Alt + H] 키 : 문장 테스트 자동화 시작")
         print("   [Ctrl + Alt + J] 키 : 단어 매칭 자동화 시작")
         print("   [Ctrl + Alt + K] 키 : 문장 스크램블 자동화 시작")
-        print("   [Ctrl + A] 키 : 전체 자동화 — 모드 선택 창 (단어장 목록 페이지에서)")
+        print("   [Ctrl + A] 키 : 전체 자동화 — 세트/모드/점수 선택 창 (단어장 목록 페이지에서)")
         print("   [Ctrl + Alt + S] 키 : 현재 셋홈 한 세트 자동화 — 모드 선택 창")
         print("   [Ctrl + E] 키 : 자동화 멈추기 (전체 계정)")
         print("   [Ctrl + M] 키 : 단어장 가져오기 (전체 계정)")
@@ -492,9 +637,9 @@ if __name__ == "__main__":
             except queue.Empty:
                 continue
             try:
-                handle_gui_request(*request)
+                handle_gui_request(request)
             except Exception as e:
-                print(f"[!] 모드 선택 창 오류: {e}")
+                print(f"[!] 선택 창 오류: {e}")
             # 창이 떠 있는 동안 쌓인 중복 요청은 버림
             while not gui_requests.empty():
                 gui_requests.get_nowait()

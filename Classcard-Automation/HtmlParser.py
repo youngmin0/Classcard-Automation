@@ -49,8 +49,6 @@ def get_data(driver, output_path='data.json'):
                 json.dump(result, f, ensure_ascii=False, indent=2)
             print(f"[Ctrl + M] 데이터 추출 완료! 총 {len(result)}개 카드")
             print(f"    -> {output_path} 파일로 저장되었습니다.")
-        else:
-            print(f"데이터 추출 완료! 총 {len(result)}개 카드 (파일 저장 안 함)")
 
         return result
     

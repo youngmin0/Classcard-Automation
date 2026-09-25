@@ -1,0 +1,14 @@
+{
+  "test_pass": 90,
+  "test_min": 90,
+  "test_max": 100,
+  "sent_test_pass": 90,
+  "sent_test_min": 100,
+  "sent_test_max": 100,
+  "match_pass": 2000,
+  "match_min": 3000,
+  "match_max": 5000,
+  "scramble_pass": 4000,
+  "scramble_min": 4000,
+  "scramble_max": 5000
+}

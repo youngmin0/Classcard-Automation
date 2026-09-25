@@ -10,13 +10,14 @@ from selenium.webdriver.common.keys import Keys
 INPUT_SELECTOR = 'input[name="input_answer"]'
 
 
-def dict_from_cards(card_list):
+def dict_from_cards(card_list, verbose=True):
     """카드 리스트([{front, back}, ...])에서 정답 딕셔너리(back→front)를 만든다.
     파일을 거치지 않으므로 다계정 병렬 시 계정마다 독립된 딕셔너리를 만들 수 있다."""
     if not card_list:
         return None
     answer_dict = {item['back']: item['front'] for item in card_list}
-    print(f"정답 딕셔너리 생성 완료! 총 {len(answer_dict)}개의 단어가 로드되었습니다.")
+    if verbose:
+        print(f"정답 딕셔너리 생성 완료! 총 {len(answer_dict)}개의 단어가 로드되었습니다.")
     return answer_dict
 
 

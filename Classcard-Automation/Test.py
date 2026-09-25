@@ -3,6 +3,8 @@ import re
 import json
 import time
 import random
+
+import Settings
 import difflib
 import threading
 import unicodedata
@@ -18,10 +20,7 @@ GO_RESULT_SELECTOR = 'a.btn-go-result'
 # 진단용: True면 문제별 파싱 결과를 터미널에 출력
 DEBUG = False
 
-# 테스트 목표 점수(0~100). 이 점수가 나오도록 일부러 틀릴 문항 수를 자동 계산한다.
-# 예) 90 → 10%만 일부러 틀림, 100 → 다 맞음.
-# (data.json 매칭 실패가 있으면 실제 점수는 이보다 더 낮게 나올 수 있음)
-TARGET_SCORE = 90
+# 테스트 목표 점수 범위는 Settings(test_min~test_max)에서 읽는다. 그 점수가 나오도록 일부러 틀릴 문항 수를 계산.
 
 # 테스트 '이탈 감지' 우회: 탭/창 포커스를 잃어도 항상 보이는/포커스된 상태로 위장.
 _ANTI_BLUR_JS = r'''
@@ -87,7 +86,8 @@ def build_lookups(answer_dict=None):
                 fwd[mnorm(front)] = back
             if back:
                 bwd[mnorm(back)] = front
-        print(f"[테스트] 매칭 데이터 로드 완료 (단어 {len(answer_dict)}개)")
+        if DEBUG:
+            print(f"[테스트] 매칭 데이터 로드 완료 (단어 {len(answer_dict)}개)")
         return fwd, bwd
 
     # 2) 폴백: 디스크 data.json
@@ -353,11 +353,12 @@ def _count_total(driver):
 
 
 def _plan_wrong_indices(total):
-    """TARGET_SCORE 이상이 나오도록 일부러 틀릴 문항 순번(1-based) 집합.
-    틀릴 개수 = floor(total * (100 - TARGET_SCORE) / 100) — 내림이라 점수는 항상 목표 이상."""
+    """목표 점수(설정 범위에서 랜덤) 이상이 나오도록 일부러 틀릴 문항 순번(1-based) 집합.
+    틀릴 개수 = floor(total * (100 - 목표) / 100) — 내림이라 점수는 항상 목표 이상."""
     if not total or total <= 0:
         return set()
-    n_wrong = int(total * (100 - TARGET_SCORE) / 100.0)
+    target = random.randint(Settings.get('test_min'), Settings.get('test_max'))
+    n_wrong = int(total * (100 - target) / 100.0)
     n_wrong = max(0, min(n_wrong, total))
     if n_wrong == 0:
         return set()

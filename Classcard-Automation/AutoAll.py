@@ -4,9 +4,12 @@ import time
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchWindowException
+from selenium.common.exceptions import (
+    TimeoutException, NoSuchWindowException, InvalidSessionIdException, WebDriverException,
+)
 
 import HtmlParser
+import Settings
 import Spell
 import Memorize
 import MemorizeSentence
@@ -25,10 +28,7 @@ RECALL_BTN_SELECTOR = '.btn-summary[onclick*="/Recall/"]'
 MATCH_BTN_SELECTOR = '.btn-summary[onclick*="/Match/"]'
 SPELL_BTN_SELECTOR = '.btn-summary[onclick*="/Spell/"]'
 TEST_BTN_SELECTOR = '.btn-start-speedquiz'
-TEST_PASS_SCORE = 70  # 단어 테스트: 최고점수가 이 점수 이상이면 완료로 간주
-SENTENCE_TEST_PASS_SCORE = 90  # 문장 테스트: 패스 기준 점수
-MATCH_PASS_SCORE = 1000  # 매칭(단어): 최고기록이 이 점수 이상이면 완료로 간주 (필수 기준)
-SCRAMBLE_PASS_SCORE = 4000  # 스크램블(문장): 최고기록이 이 점수 이상이면 완료로 간주 (필수 기준)
+# 테스트/매칭/스크램블 통과 기준 점수는 Settings(settings.json)에서 읽는다 (Ctrl+A 창에서 조절)
 TEST_NEXT_BTN_SELECTOR = '.btn-condition-next'  # '다음' 버튼
 TEST_START_BTN_SELECTOR = '.btn-quiz-start'     # '테스트 시작' 버튼
 TEST_OK_BTN_SELECTOR = '.modal-content .btn-ok'  # '응시' / '새로 시작' 확인 버튼
@@ -165,7 +165,6 @@ def handle_test_restart_modals(driver, stop_event, max_clicks=3, appear_timeout=
                 driver.execute_script("arguments[0].click();", btn)
             except Exception:
                 pass
-        print("[전체] 테스트 확인 모달 처리 (.btn-ok 클릭)")
         if stop_event.wait(timeout=0.7):
             return
     
@@ -186,7 +185,7 @@ def is_mode_completed(driver, btn_selector) -> bool:
         return False
 
 
-def is_test_done(driver, pass_score=TEST_PASS_SCORE) -> bool:
+def is_test_done(driver, pass_score) -> bool:
     """테스트 버튼의 '최고점수'가 pass_score 이상이면 완료로 간주."""
     try:
         btn = driver.find_element(By.CSS_SELECTOR, TEST_BTN_SELECTOR)
@@ -198,7 +197,7 @@ def is_test_done(driver, pass_score=TEST_PASS_SCORE) -> bool:
         return False
 
 
-def is_match_done(driver, pass_score=MATCH_PASS_SCORE) -> bool:
+def is_match_done(driver, pass_score) -> bool:
     """매칭 버튼의 '최고기록' 점수가 pass_score 이상이면 완료로 간주."""
     try:
         btn = driver.find_element(By.CSS_SELECTOR, MATCH_BTN_SELECTOR)
@@ -269,7 +268,6 @@ def ensure_full_cards_mode(driver, stop_event) -> bool:
 
     try:
         WebDriverWait(driver, 5).until(lambda d: is_full_cards_mode(d))
-        print(f"[전체] 학습구간 → '{FULL_CARDS_LABEL}'")
         return True
     except TimeoutException:
         print(f"[전체] 학습구간 변경 확인 실패.")
@@ -341,8 +339,9 @@ def process_set_detail(driver, sentence_mode, set_name, stop_event, modes=None):
     순서: 암기 → 리콜 → (단어·필수면)스펠 → 매칭/스크램블 → 테스트.
     modes: 수행할 모드(MODE_KEYS의 부분집합). None이면 전부. 선택 안 된 모드는 완료로 간주."""
     modes = set(MODE_KEYS) if modes is None else set(modes)
-    # 문장 set은 문장 테스트(패스 90점), 단어 set은 단어 테스트(패스 70점)
-    test_pass = SENTENCE_TEST_PASS_SCORE if sentence_mode else TEST_PASS_SCORE
+    # 문장 set은 문장 테스트/스크램블, 단어 set은 단어 테스트/매칭 기준 (Ctrl+A 창에서 조절)
+    test_pass = Settings.get('sent_test_pass' if sentence_mode else 'test_pass')
+    game_pass = Settings.get('scramble_pass' if sentence_mode else 'match_pass')
 
     # 스펠은 단어 set + 선생님이 '필수'로 지정한 경우에만 (자율이면 건너뜀)
     spell_required = (not sentence_mode) and '스펠' in modes and is_spell_required(driver)
@@ -350,17 +349,11 @@ def process_set_detail(driver, sentence_mode, set_name, stop_event, modes=None):
     memorize_done = '암기' not in modes or is_mode_completed(driver, MEMORIZE_BTN_SELECTOR)
     recall_done = '리콜' not in modes or is_mode_completed(driver, RECALL_BTN_SELECTOR)
     test_done = '테스트' not in modes or is_test_done(driver, test_pass)
-    # 문장 set은 스크램블(4000점), 단어 set은 매칭(1000점)
-    if '매칭' not in modes:
-        game_done = True
-    elif sentence_mode:
-        game_done = is_match_done(driver, SCRAMBLE_PASS_SCORE)
-    else:
-        game_done = is_match_done(driver, MATCH_PASS_SCORE)
+    game_done = '매칭' not in modes or is_match_done(driver, game_pass)
     # 스펠: 필수가 아니면 완료로 간주(스킵), 필수면 data-rate로 판단
     spell_done = (not spell_required) or is_mode_completed(driver, SPELL_BTN_SELECTOR)
     if memorize_done and recall_done and test_done and game_done and spell_done:
-        print("[전체] 선택한 모드 모두 완료 — set 스킵")
+        print("[전체] 선택한 모드 모두 완료 — 스킵")
         return
 
     ensure_full_cards_mode(driver, stop_event)
@@ -376,7 +369,7 @@ def process_set_detail(driver, sentence_mode, set_name, stop_event, modes=None):
         print("[전체] 단어장 추출 실패.")
         return
 
-    answer_dict = Spell.dict_from_cards(data)
+    answer_dict = Spell.dict_from_cards(data, verbose=False)
     if not answer_dict:
         print("[전체] answer_dict 생성 실패.")
         return
@@ -407,14 +400,12 @@ def process_set_detail(driver, sentence_mode, set_name, stop_event, modes=None):
 
         if mode_label == '테스트':
             already_done = is_test_done(driver, test_pass)
-        elif mode_label == '매칭':
-            already_done = is_match_done(driver, MATCH_PASS_SCORE)
-        elif mode_label == '스크램블':
-            already_done = is_match_done(driver, SCRAMBLE_PASS_SCORE)
+        elif mode_label in ('매칭', '스크램블'):
+            already_done = is_match_done(driver, game_pass)
         else:
             already_done = is_mode_completed(driver, btn_selector)
         if already_done:
-            print(f"[전체] {mode_label} 이미 완료 — 스킵.")
+            print(f"[{mode_label}] 이미 완료 — 스킵")
             continue
 
         if not click_mode_button(driver, btn_selector):
@@ -435,7 +426,6 @@ def process_set_detail(driver, sentence_mode, set_name, stop_event, modes=None):
                     next_btn.click()
                 except Exception:
                     driver.execute_script("arguments[0].click();", next_btn)
-                print("[전체] 테스트 '다음' 버튼 클릭 완료")
             except Exception as e:
                 print(f"[전체] 테스트 '다음' 버튼 클릭 실패: {e}")
                 continue
@@ -452,7 +442,6 @@ def process_set_detail(driver, sentence_mode, set_name, stop_event, modes=None):
                     start_btn.click()
                 except Exception:
                     driver.execute_script("arguments[0].click();", start_btn)
-                print("[전체] '테스트 시작' 버튼 클릭 완료")
             except Exception as e:
                 print(f"[전체] '테스트 시작' 버튼 클릭 실패: {e}")
                 continue
@@ -489,17 +478,17 @@ def process_set_detail(driver, sentence_mode, set_name, stop_event, modes=None):
 def run_single_set_loop(driver, stop_event: threading.Event, modes=None):
     """현재 열려 있는 set 상세(셋홈) 페이지의 그 set만 전체 모드 수행 후 종료."""
     print("[한세트] 시작 (Ctrl+E로 중지)")
-    if not wait_for_set_detail(driver, timeout=3):
-        print("[한세트] set 상세(셋홈) 페이지에서 실행하세요.")
-        return
     try:
+        if not wait_for_set_detail(driver, timeout=3):
+            print("[한세트] set 상세(셋홈) 페이지에서 실행하세요.")
+            return
         sentence_mode = is_sentence_set_detail(driver)
         set_name = (driver.title or '').strip()
         print(f"\n[한세트] [{'문장' if sentence_mode else '단어'}] {set_name}")
         process_set_detail(driver, sentence_mode, set_name, stop_event, modes)
-    except NoSuchWindowException:
+    except (NoSuchWindowException, InvalidSessionIdException):
         if not stop_event.is_set():
-            print("[한세트] 브라우저 창이 닫혔습니다.")
+            print("[한세트] 브라우저 창이 닫혔습니다. 프로그램을 다시 실행하세요.")
     except Exception as e:
         if not stop_event.is_set():
             print(f"[한세트] 오류: {e}")
@@ -507,15 +496,23 @@ def run_single_set_loop(driver, stop_event: threading.Event, modes=None):
         print("[한세트] 종료")
 
 
-def run_full_automation_loop(driver, stop_event: threading.Event, modes=None):
-    print("[전체] 시작 (Ctrl+E로 중지)")
+def run_full_automation_loop(driver, stop_event: threading.Event, modes=None, set_idxs=None):
+    """set_idxs: 처리할 set의 data-idx 집합. None이면 목록의 모든 set."""
+    if set_idxs is not None:
+        set_idxs = set(set_idxs)
+        print(f"[전체] 시작 — 선택된 세트 {len(set_idxs)}개 (Ctrl+E로 중지)")
+    else:
+        print("[전체] 시작 (Ctrl+E로 중지)")
 
-    if not wait_for_set_list(driver, timeout=3):
-        print("[전체] .set-item을 찾을 수 없습니다. 단어장 목록 페이지에서 시작하세요.")
+    try:
+        if not wait_for_set_list(driver, timeout=3):
+            print("[전체] .set-item을 찾을 수 없습니다. 단어장 목록 페이지에서 시작하세요.")
+            return
+        # set 목록 URL 저장 (테스트 '나가기' 등 페이지 이동으로 히스토리가 오염돼도 확실히 복귀)
+        set_list_url = driver.current_url
+    except (NoSuchWindowException, InvalidSessionIdException):
+        print("[전체] 브라우저 창이 닫혔습니다. 프로그램을 다시 실행하세요.")
         return
-
-    # set 목록 URL 저장 (테스트 '나가기' 등 페이지 이동으로 히스토리가 오염돼도 확실히 복귀)
-    set_list_url = driver.current_url
 
     def back_to_set_list(timeout=10):
         try:
@@ -536,12 +533,15 @@ def run_full_automation_loop(driver, stop_event: threading.Event, modes=None):
 
             target = None
             for s in reversed(sets):
-                if s['idx'] and s['idx'] not in processed_idx_set:
-                    target = s
-                    break
+                if not s['idx'] or s['idx'] in processed_idx_set:
+                    continue
+                if set_idxs is not None and s['idx'] not in set_idxs:
+                    continue
+                target = s
+                break
 
             if target is None:
-                print("[전체] 모든 set 처리 완료.")
+                print("[전체] 선택한 set 처리 완료." if set_idxs is not None else "[전체] 모든 set 처리 완료.")
                 break
 
             # 셋 목록 아이콘(.set-icon.sentence)으로 판별, 폴백으로 이름의 '(예문)'
@@ -584,9 +584,9 @@ def run_full_automation_loop(driver, stop_event: threading.Event, modes=None):
             if stop_event.wait(timeout=1.0):
                 break
 
-    except NoSuchWindowException:
+    except (NoSuchWindowException, InvalidSessionIdException):
         if not stop_event.is_set():
-            print("[전체] 브라우저 창이 닫혔습니다.")
+            print("[전체] 브라우저 창이 닫혔습니다. 프로그램을 다시 실행하세요.")
     except Exception as e:
         if not stop_event.is_set():
             print(f"[전체] 오류: {e}")

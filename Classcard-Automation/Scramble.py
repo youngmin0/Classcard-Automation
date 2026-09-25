@@ -4,6 +4,8 @@ import html
 import json
 import time
 import random
+
+import Settings
 import threading
 import unicodedata
 from selenium.common.exceptions import NoSuchWindowException
@@ -12,10 +14,7 @@ from selenium.common.exceptions import NoSuchWindowException
 # 진단용: True면 스크램블 과정을 터미널에 출력
 DEBUG = False
 
-# 필수 학습(4000점)을 채우되 끝까지 가지 않도록, 이 범위 안에서 목표 점수를 정해
-# 도달하면 게임 도중에 빠져나간다 (점수는 저장됨).
-EXIT_SCORE_MIN = 4000
-EXIT_SCORE_MAX = 5000
+# 목표 점수 범위는 Settings(scramble_min~scramble_max). 도달하면 게임 도중 빠져나간다 (점수는 저장됨).
 
 # 스크램블(문장 매칭) 보드 셀렉터
 PROMPT_SELECTOR = '.quest-back'                       # 한국어 문제 문장
@@ -148,7 +147,8 @@ def _load_cards(driver):
                 "return (typeof study_data !== 'undefined') ? study_data : null;"
             )
             if cards:
-                print(f"[스크램블] 페이지 study_data 로드 (카드 {len(cards)}개)")
+                if DEBUG:
+                    print(f"[스크램블] 페이지 study_data 로드 (카드 {len(cards)}개)")
                 return cards
         except NoSuchWindowException:
             raise
@@ -365,8 +365,8 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
         print("[스크램블] 종료")
         return
 
-    target_score = random.randint(EXIT_SCORE_MIN, EXIT_SCORE_MAX)
-    print(f"[스크램블] 목표 점수 {target_score} 도달 시 종료")
+    target_score = random.randint(Settings.get('scramble_min'), Settings.get('scramble_max'))
+    print(f"[스크램블] 목표 점수 {target_score}")
 
     nomatch_streak = 0  # 다음 단어를 못 찾은 연속 횟수
 
@@ -378,7 +378,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             # 목표 점수 도달 시 셋홈으로 빠져나감 (점수는 저장됨)
             score = read_score(driver)
             if score is not None and score >= target_score:
-                print(f"[스크램블] 목표 점수 도달 (현재 {score}) → 종료")
+                print(f"[스크램블] {score}점 도달 → 종료")
                 _return_to_set_home(driver, stop_event)
                 stop_event.set()
                 break

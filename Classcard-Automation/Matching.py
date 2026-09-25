@@ -4,6 +4,8 @@ import html
 import json
 import time
 import random
+
+import Settings
 import difflib
 import threading
 import unicodedata
@@ -13,10 +15,7 @@ from selenium.common.exceptions import NoSuchWindowException
 # 진단용: True면 매칭 과정을 터미널에 출력
 DEBUG = False
 
-# 필수 학습(1000점)을 채우되 끝까지 가지 않도록, 이 범위 안에서 목표 점수를 정해
-# 도달하면 게임 도중에 '매칭종료'로 빠져나간다 (점수는 저장됨).
-EXIT_SCORE_MIN = 3000
-EXIT_SCORE_MAX = 5000
+# 목표 점수 범위는 Settings(match_min~match_max). 도달하면 게임 도중 '매칭종료'로 빠져나간다 (점수는 저장됨).
 
 # 매칭 보드 셀렉터
 LEFT_CARD_SELECTOR = '.match-body.left .flip-card'    # 영어
@@ -90,7 +89,8 @@ def _load_cards(driver):
                 "return (typeof card_list !== 'undefined') ? card_list : null;"
             )
             if cards:
-                print(f"[매칭] 페이지 card_list 로드 (카드 {len(cards)}개)")
+                if DEBUG:
+                    print(f"[매칭] 페이지 card_list 로드 (카드 {len(cards)}개)")
                 return cards
         except NoSuchWindowException:
             raise
@@ -376,8 +376,8 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
         print("[매칭] 종료")
         return
 
-    target_score = random.randint(EXIT_SCORE_MIN, EXIT_SCORE_MAX)
-    print(f"[매칭] 목표 점수 {target_score} 도달 시 중도 종료")
+    target_score = random.randint(Settings.get('match_min'), Settings.get('match_max'))
+    print(f"[매칭] 목표 점수 {target_score}")
 
     empty_streak = 0   # 보드가 비어있는 연속 횟수 (게임 종료 추정)
     nomatch_streak = 0  # 매칭 쌍을 못 찾은 연속 횟수
@@ -390,7 +390,7 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
             # 목표 점수 도달 시 게임 도중 '매칭종료'로 빠져나감 (점수는 저장됨)
             score = read_score(driver)
             if score is not None and score >= target_score:
-                print(f"[매칭] 목표 점수 도달 (현재 {score}) → 중도 종료")
+                print(f"[매칭] {score}점 도달 → 종료")
                 exit_mid_game(driver, stop_event)
                 break
 

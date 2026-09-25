@@ -304,7 +304,6 @@ def run_automation_loop(driver, answer_dict, stop_event: threading.Event):
     captured_logged = False
     for _ in range(20):
         if get_page_answers(driver):
-            print("[문장 리콜] 페이지 정답 캡처 성공 (data.json 불필요)")
             captured_logged = True
             break
         if stop_event.wait(timeout=0.3):
