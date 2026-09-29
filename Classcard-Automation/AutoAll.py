@@ -38,6 +38,8 @@ VIEW_TYPE_TOGGLE_SELECTOR = 'a[data-toggle="dropdown"] .str_view_type'
 START_LEARNING_BTN_SELECTOR = '.btn-opt-start'
 FULL_CARDS_DATA_IDX = "6"
 FULL_CARDS_LABEL = "전체 카드 학습"
+FULL_SECTION = "6000"  # 학습 시작 화면 URL(/Memorize/{set}/{구간}/{class})에서 '전체 구간'을 뜻하는 값
+_SECTION_URL_RE = re.compile(r'(/(?:Memorize|Recall|Spell)/\d+/)(\d+)(/|$)')
 
 # 전체 자동화에서 선택 가능한 모드 ('매칭'은 문장 set의 스크램블을 포함)
 MODE_KEYS = ('암기', '리콜', '스펠', '매칭', '테스트')
@@ -229,8 +231,41 @@ def is_full_cards_mode(driver) -> bool:
         return False
 
 
-def ensure_full_cards_mode(driver, stop_event) -> bool:
-    """학습 구간 드롭다운을 '전체 카드 학습'으로 설정."""
+def ensure_full_cards_mode(driver, stop_event, tries=3) -> bool:
+    """학습 구간 드롭다운을 '전체 카드 학습'으로 설정. 페이지 스크립트가 덜 준비돼 클릭이
+    먹히지 않는 경우가 있어 몇 번 재시도한다."""
+    for attempt in range(tries):
+        if _set_full_cards_mode_once(driver, stop_event, quiet=attempt < tries - 1):
+            return True
+        if stop_event.wait(timeout=1.0):
+            return False
+    return False
+
+
+def ensure_full_section_url(driver, stop_event) -> bool:
+    """암기/리콜/스펠 시작 화면의 URL 구간이 전체(6000)가 아니면 전체 구간 URL로 다시 연다.
+    (드롭다운 전환이 실패했어도 시작 화면에서 확실히 '전체구간'으로 맞추는 안전장치)"""
+    try:
+        url = driver.current_url
+    except Exception:
+        return False
+    m = _SECTION_URL_RE.search(url)
+    if not m or m.group(2) == FULL_SECTION:
+        return False
+    fixed = url[:m.start(2)] + FULL_SECTION + url[m.end(2):]
+    print(f"[전체] 학습구간이 전체가 아니어서 전체 구간으로 다시 엽니다 (구간 {m.group(2)} → 전체)")
+    try:
+        # location.replace: 방문 기록을 덮어써서, 학습 종료 후 '뒤로'가 셋홈으로 가도록 유지
+        driver.execute_script("location.replace(arguments[0]);", fixed)
+        WebDriverWait(driver, 10).until(lambda d: FULL_SECTION in d.current_url)
+    except Exception as e:
+        print(f"[전체] 전체 구간 이동 실패: {e}")
+        return False
+    stop_event.wait(timeout=1.0)
+    return True
+
+
+def _set_full_cards_mode_once(driver, stop_event, quiet=False) -> bool:
     if is_full_cards_mode(driver):
         return True
 
@@ -239,7 +274,8 @@ def ensure_full_cards_mode(driver, stop_event) -> bool:
         toggle_a = toggle_label.find_element(By.XPATH, "./ancestor::a[@data-toggle='dropdown']")
         driver.execute_script("arguments[0].click();", toggle_a)
     except Exception as e:
-        print(f"[전체] 학습구간 드롭다운을 찾지 못했습니다: {e}")
+        if not quiet:
+            print(f"[전체] 학습구간 드롭다운을 찾지 못했습니다: {e}")
         return False
 
     if stop_event.wait(timeout=0.5):
@@ -258,20 +294,23 @@ def ensure_full_cards_mode(driver, stop_event) -> bool:
             pass
 
     if option is None:
-        print(f"[전체] '{FULL_CARDS_LABEL}' 옵션을 찾지 못했습니다.")
+        if not quiet:
+            print(f"[전체] '{FULL_CARDS_LABEL}' 옵션을 찾지 못했습니다.")
         return False
 
     try:
         driver.execute_script("arguments[0].click();", option)
     except Exception as e:
-        print(f"[전체] '{FULL_CARDS_LABEL}' 옵션 클릭 오류: {e}")
+        if not quiet:
+            print(f"[전체] '{FULL_CARDS_LABEL}' 옵션 클릭 오류: {e}")
         return False
 
     try:
         WebDriverWait(driver, 5).until(lambda d: is_full_cards_mode(d))
         return True
     except TimeoutException:
-        print(f"[전체] 학습구간 변경 확인 실패.")
+        if not quiet:
+            print(f"[전체] 학습구간 변경 확인 실패.")
         return False
 
 
@@ -457,6 +496,9 @@ def process_set_detail(driver, sentence_mode, set_name, stop_event, modes=None):
                 print("[전체] 테스트 페이지 진입 실패. 스킵.")
                 continue
         else:
+            # 암기/리콜/스펠: 시작 화면이 전체 구간이 아니면 전체 구간 URL로 다시 연다
+            if mode_label in ('암기', '리콜', '스펠'):
+                ensure_full_section_url(driver, stop_event)
             # 암기 / 리콜 / 스펠 / 매칭 / 스크램블은 시작 버튼(.btn-opt-start) 클릭
             if not click_start_learning(driver, stop_event):
                 print(f"[전체] {mode_label} 시작 버튼 클릭 실패. 스킵.")
