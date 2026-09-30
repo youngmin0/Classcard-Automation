@@ -499,6 +499,8 @@ def process_set_detail(driver, sentence_mode, set_name, stop_event, modes=None):
             # 암기/리콜/스펠: 시작 화면이 전체 구간이 아니면 전체 구간 URL로 다시 연다
             if mode_label in ('암기', '리콜', '스펠'):
                 ensure_full_section_url(driver, stop_event)
+            if mode_label == '스펠' and sentence_mode:
+                SpellSentence.prepare_options(driver)
             # 암기 / 리콜 / 스펠 / 매칭 / 스크램블은 시작 버튼(.btn-opt-start) 클릭
             if not click_start_learning(driver, stop_event):
                 print(f"[전체] {mode_label} 시작 버튼 클릭 실패. 스킵.")
