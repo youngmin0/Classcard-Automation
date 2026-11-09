@@ -22,17 +22,17 @@ def get_data(driver, output_path='data.json'):
     try:
         html = driver.page_source
         
-        # 1) study_data 배열을 정규식으로 추출
-        # var study_data = [...]; 형태에서 [...] 부분만 꺼냄
-        match = re.search(r'var\s+study_data\s*=\s*(\[.*?\]);', html, re.DOTALL)
-        
+        # 1) var study_data = [...] 에서 배열 시작 위치를 찾음
+        match = re.search(r'var\s+study_data\s*=\s*(?=\[)', html)
+
         if not match:
             print("[!] study_data를 찾을 수 없습니다. 학습 페이지가 맞는지 확인하세요.")
             return None
-        
-        json_str = match.group(1)
-        study_data = json.loads(json_str)
-        
+
+        # 배열 끝은 JSON 디코더가 판단한다.
+        # 정규식으로 "];"를 찾으면 뜻 문자열 안의 "];"(예: "소년 [남자아이]; 아들")에서 잘린다.
+        study_data, _ = json.JSONDecoder().raw_decode(html, match.end())
+
         # 2) front, back만 추려서 새 리스트 생성
         result = []
         for card in study_data:
